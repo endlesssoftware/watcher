@@ -52,13 +52,18 @@ $
 $start:
 $ close/nolog source_chan
 $ open/read source_chan 'source'
-$ read source_chan version
+$loop:
+$ read/end_of_file=endloop source_chan line
+$ line = f$edit(line,"UPCASE,UNCOMMENT,TRIM,COLLAPSE")
+$ if (line .eqs. "") then goto loop
+$ 'f$element(0,"=",line)' = "''f$element(1,"=",line)'"
+$ goto loop
+$endloop:
 $ close/nolog source_chan
 $
 $ date = f$cvtime("TODAY","ABSOLUTE","DATE")
-$ version = f$element(1, "=", version) - """" - """"
 $
-$ err I GENSYM "generating dynamic DOCUMENT symbols for version ''version' on ''date'"
+$ err I GENSYM "generating dynamic DOCUMENT symbols for version ''text_version' on ''date'"
 $
 $ month = f$element(f$integer(f$cvtime(date,, "MONTH")) - 1, "/", months)
 $
@@ -75,7 +80,7 @@ $ write target_chan "<DEFINE_SYMBOL>(COPYYEAR\''copyyear')"
 $ write target_chan "<DEFINE_SYMBOL>(RELDATE\''reldate')"
 $ write target_chan "<DEFINE_SYMBOL>(RELMONTH\''relmonth')"
 $ write target_chan "<DEFINE_SYMBOL>(PRTDATE\''prtdate')"
-$ write target_chan "<DEFINE_SYMBOL>(VER\''version')"
+$ write target_chan "<DEFINE_SYMBOL>(VER\''text_version')"
 $ close/nolog target_chan
 $
 $ goto bail_out
