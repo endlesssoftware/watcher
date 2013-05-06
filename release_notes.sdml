@@ -26,15 +26,13 @@ that is not provided elsewhere in the WATCHER manual.
 This chapter contains items of interest pertaining to the installation of
 WATCHER.
 
-WATCHER Update Information
-
-**********
-*  Remember that the terminal-disconnect code runs in kernel mode at
-*  elevated IPL and could crash your system if HP decides to change the
-*  terminal class driver or the terminal UCB extensions for some reason.
-*  Be careful using the disconnect code the first time and when upgrading
-*  to new versions of VMS!
-**********
+<NOTE>
+Remember that the terminal-disconnect code runs in kernel mode at
+elevated IPL and could crash your system if HP decides to change the
+terminal class driver or the terminal UCB extensions for some reason.
+Be careful using the disconnect code the first time and when upgrading
+to new versions of VMS!
+<ENDNOTE>
 
 <CHAPTER>(New Features and Changes in WATCHER V4.2)
 <P>
