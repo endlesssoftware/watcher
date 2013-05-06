@@ -1,0 +1,322 @@
+%TITLE 'WCP_CMDIO'
+MODULE WCP_CMDIO (IDENT='V1.0-2') =
+BEGIN
+!++
+! FACILITY: 	    WCP  WATCHER Control Program
+!
+! ABSTRACT: 	    Command I/O routines used by WCP.
+!
+! MODULE DESCRIPTION:
+!
+!   This module contains terminal/command I/O routines.
+!
+! AUTHOR:   	    M. Madison
+!
+! Copyright (c) 2010, Matthew Madison.
+!
+! All rights reserved.
+!
+! Redistribution and use in source and binary forms, with or without
+! modification, are permitted provided that the following conditions
+! are met:
+!
+!     * Redistributions of source code must retain the above
+!       copyright notice, this list of conditions and the following
+!       disclaimer.
+!     * Redistributions in binary form must reproduce the above
+!       copyright notice, this list of conditions and the following
+!       disclaimer in the documentation and/or other materials provided
+!       with the distribution.
+!     * Neither the name of the copyright owner nor the names of any
+!       other contributors may be used to endorse or promote products
+!       derived from this software without specific prior written
+!       permission.
+!
+! THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS
+! "AS IS" AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT
+! LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR
+! A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT
+! OWNER OR CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL,
+! SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT
+! LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE,
+! DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY
+! THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
+! (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
+! OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+!
+! CREATION DATE:    17-NOV-1989
+!
+! MODIFICATION HISTORY:
+!
+!   17-NOV-1989	V1.0	Madison	    Initial coding.
+!   20-MAR-1990	V1.0-1	Madison	    Idiotic bug fixes.
+!   06-SEP-2010 V1.0-2  Sneddon     Updated license to BSD at request of M. Madison.
+!--
+
+    LIBRARY 'SYS$LIBRARY:STARLET';
+    LIBRARY 'WCP';
+    LIBRARY 'FIELDS';
+
+    FORWARD ROUTINE
+    	GET_CMD,
+    	INDIRECT;
+
+    BUILTIN
+    	INSQUE, REMQUE;
+
+    EXTERNAL ROUTINE
+    	LIB$PUT_OUTPUT	: BLISS ADDRESSING_MODE (GENERAL),
+    	STR$FIND_FIRST_IN_SET
+    	    	    	: BLISS ADDRESSING_MODE (GENERAL),
+    	STR$FIND_FIRST_NOT_IN_SET
+    	    	    	: BLISS ADDRESSING_MODE (GENERAL),
+    	STR$RIGHT   	: BLISS ADDRESSING_MODE (GENERAL),
+    	STR$LEFT    	: BLISS ADDRESSING_MODE (GENERAL),
+    	SMG$CREATE_VIRTUAL_KEYBOARD
+    	    	    	: BLISS ADDRESSING_MODE (GENERAL),
+    	SMG$READ_COMPOSED_LINE
+    	    	    	: BLISS ADDRESSING_MODE (GENERAL);
+
+    EXTERNAL LITERAL
+    	WCP__CANTIND, SMG$_EOF;
+
+    _DEF (IOC)
+    	IOC_L_FLINK 	= _LONG,
+    	IOC_L_BLINK 	= _LONG,
+    	IOC_X_FAB   	= _BYTES (FAB$C_BLN),
+    	IOC_X_RAB   	= _BYTES (RAB$C_BLN)
+    _ENDDEF (IOC);
+
+    EXTERNAL
+    	DEFAULTS : DFLTDEF;
+
+    OWN
+    	KBID	: INITIAL (0),
+    	IOCQUE	: IOCDEF;
+
+%SBTTL 'GET_CMD'
+GLOBAL ROUTINE GET_CMD (STR_A, PROMPT_A, OUTLEN_A) =
+BEGIN
+!++
+! FUNCTIONAL DESCRIPTION:
+!
+!   Uses SMG$READ_COMPOSED_LINE to get a line from the command stream.
+!
+! RETURNS:  	cond_value, longword (unsigned), write only, by value
+!
+! PROTOTYPE:
+!
+!   GET_CMD  str [,prompt] [,outlen]
+!
+! IMPLICIT INPUTS:  None.
+!
+! IMPLICIT OUTPUTS: None.
+!
+! COMPLETION CODES:
+!
+!   SS$_NORMAL:	    	normal successful completion.
+!
+! SIDE EFFECTS:
+!
+!   None.
+!--
+
+    BUILTIN
+    	ACTUALCOUNT;
+
+    LOCAL
+    	PROMPT	: BLOCK [DSC$K_S_BLN,BYTE],
+    	STR 	: BLOCK [DSC$K_S_BLN,BYTE],
+    	LEN 	: WORD,
+    	XIOC	: REF IOCDEF,
+    	STATUS;
+
+    $INIT_DYNDESC (PROMPT);
+    $INIT_DYNDESC (STR);
+    IF ACTUALCOUNT () GTR 1 THEN
+    	IF .PROMPT_A NEQ 0 THEN
+    	    STR$COPY_DX (PROMPT, .PROMPT_A);
+
+    IF .KBID EQL 0 THEN
+    BEGIN
+    	SMG$CREATE_VIRTUAL_KEYBOARD (KBID);
+    	IOCQUE [IOC_L_BLINK] = IOCQUE [IOC_L_FLINK] = IOCQUE [IOC_L_FLINK];
+    	STR$PREFIX (PROMPT, %ASCID %STRING (%CHAR (10)));
+    END;
+
+    WHILE 1 DO
+    BEGIN
+    	WHILE .IOCQUE [IOC_L_FLINK] NEQA IOCQUE [IOC_L_FLINK] DO
+    	BEGIN
+    	    BIND
+    	    	CURIOC  = .IOCQUE [IOC_L_FLINK] : IOCDEF,
+    	    	FAB 	= CURIOC [IOC_X_FAB]    : $FAB_DECL,
+    	    	RAB 	= CURIOC [IOC_X_RAB]    : $RAB_DECL;
+
+    	    IF (RAB [RAB$V_PMT] = (.PROMPT_A NEQ 0)) THEN
+    	    BEGIN
+    	    	RAB [RAB$L_PBF] = .PROMPT [DSC$A_POINTER];
+    	    	RAB [RAB$B_PSZ] = .PROMPT [DSC$W_LENGTH];
+    	    END;
+    	    STATUS = $GET (RAB=RAB);
+    	    IF .STATUS THEN
+    	    BEGIN
+    	    	IF NOT INDIRECT (.RAB [RAB$W_RSZ], .RAB [RAB$L_UBF]) THEN
+    	    	BEGIN
+    	    	    IF ACTUALCOUNT () GTR 2 THEN
+    	    	    	IF .OUTLEN_A NEQA 0 THEN .OUTLEN_A = .RAB [RAB$W_RSZ];
+    	    	    STR$COPY_R (.STR_A, RAB [RAB$W_RSZ], .RAB [RAB$L_UBF]);
+    	    	    IF .DEFAULTS [DFLT_V_VERIFY] THEN
+    	    	    	LIB$PUT_OUTPUT (.STR_A);
+    	    	    STR$FREE1_DX (PROMPT);
+    	    	    RETURN SS$_NORMAL
+    	    	END;
+    	    END
+    	    ELSE
+    	    BEGIN
+    	    	$DISCONNECT (RAB=RAB);
+    	    	$CLOSE (FAB=FAB);
+    	    	LIB$FREE_VM (%REF (.RAB [RAB$W_USZ]), RAB [RAB$L_UBF]);
+    	    	REMQUE (CURIOC, XIOC);
+    	    	LIB$FREE_VM (%REF (IOC_S_IOCDEF), XIOC);
+    	    END;
+    	END;
+
+    	STATUS = SMG$READ_COMPOSED_LINE (KBID, 0, STR, PROMPT, LEN);
+    	IF .STATUS THEN
+    	BEGIN
+    	    IF NOT INDIRECT (.STR [DSC$W_LENGTH], .STR [DSC$A_POINTER]) THEN
+    	    BEGIN
+    	    	IF ACTUALCOUNT () GTR 2 THEN
+    	    	    IF .OUTLEN_A NEQ 0 THEN .OUTLEN_A = .LEN;
+    	    	STR$COPY_DX (.STR_A, STR);
+    	    	STR$FREE1_DX (PROMPT);
+    	    	RETURN SS$_NORMAL;
+    	    END;
+    	END
+    	ELSE
+    	BEGIN
+    	    STR$FREE1_DX (STR);
+    	    STR$FREE1_DX (PROMPT);
+    	    IF .STATUS EQL SMG$_EOF THEN
+    	    	RETURN RMS$_EOF
+    	    ELSE
+    	    	RETURN .STATUS;
+    	END;
+
+    END; ! WHILE 1
+
+    SS$_ABORT
+
+END; ! GET_CMD
+
+%SBTTL 'INDIRECT'
+ROUTINE INDIRECT (INPLEN, INPADR) = 
+BEGIN
+!++
+! FUNCTIONAL DESCRIPTION:
+!
+!   Checks for an input redirection (@command-file).  If found, returns
+!   Otherwise returns 0.
+!
+! RETURNS:  	longword_unsigned, longword (unsigned), write only, by value
+!
+! PROTOTYPE:
+!
+!   INDIRECT  inplen, inpadr
+!
+! IMPLICIT INPUTS:  None.
+!
+! IMPLICIT OUTPUTS: None.
+!
+! COMPLETION CODES:
+!
+!   SS$_NORMAL:	    	normal successful completion.
+!
+! SIDE EFFECTS:
+!
+!   None.
+!--
+    LOCAL
+    	INPSTR	: BLOCK [DSC$K_S_BLN,BYTE],
+    	STR 	: BLOCK [DSC$K_S_BLN,BYTE],
+    	XABFHC	: $XABFHC_DECL,
+    	IOC 	: REF IOCDEF,
+    	I,
+    	STATUS;
+
+    IF .INPLEN EQL 0 THEN RETURN 0;
+
+    INPSTR [DSC$B_DTYPE] = DSC$K_DTYPE_T;
+    INPSTR [DSC$B_CLASS] = DSC$K_CLASS_S;
+    INPSTR [DSC$W_LENGTH] = .INPLEN;
+    INPSTR [DSC$A_POINTER] = .INPADR;
+
+    $INIT_DYNDESC (STR);
+
+    I = STR$FIND_FIRST_NOT_IN_SET (INPSTR, %ASCID %STRING (' ', %CHAR (9)));
+    IF CH$RCHAR (.INPADR+.I-1) NEQ %C'@' THEN RETURN 0;
+    STR$RIGHT (STR, INPSTR, %REF (.I+1));
+    I = STR$FIND_FIRST_NOT_IN_SET (STR, %ASCID %STRING (' ', %CHAR (9)));
+    IF .I GTR 1 THEN STR$RIGHT (STR, STR, I);
+    I = STR$FIND_FIRST_IN_SET (STR, %ASCID %STRING (' ', %CHAR (9), '!'));
+    IF .I GTR 0 THEN STR$LEFT (STR, STR, %REF (.I-1));
+    STATUS = LIB$GET_VM (%REF (IOC_S_IOCDEF), IOC);
+    IF NOT .STATUS THEN
+    BEGIN
+    	SIGNAL (WCP__CANTIND, 0, .STATUS);
+    	STR$FREE1_DX (STR);
+    	RETURN 0;
+    END;
+    BEGIN
+    	BIND
+    	    FAB = IOC [IOC_X_FAB] : $FAB_DECL,
+    	    RAB = IOC [IOC_X_RAB] : $RAB_DECL;
+
+    	$FAB_INIT (FAB=FAB, FNA=.STR [DSC$A_POINTER], FNS=.STR [DSC$W_LENGTH],
+    	    XAB=XABFHC, FAC=GET, SHR=SHRPUT, DNM='SYS$DISK:[].WCP');
+    	$XABFHC_INIT (XAB=XABFHC);
+    	STATUS = $OPEN (FAB=FAB);
+    	IF NOT .STATUS THEN
+    	BEGIN
+    	    SIGNAL (WCP__CANTIND, 0, .STATUS, .FAB [FAB$L_STV]);
+    	    STR$FREE1_DX (STR);
+    	    LIB$FREE_VM (%REF (IOC_S_IOCDEF), IOC);
+    	    RETURN 0;
+    	END;
+    	STR$FREE1_DX (STR);
+    	$RAB_INIT (RAB=RAB, FAB=FAB);
+    	STATUS = $CONNECT (RAB=RAB);
+    	IF NOT .STATUS THEN
+    	BEGIN
+    	    SIGNAL (WCP__CANTIND, 0, .STATUS, .RAB [RAB$L_STV]);
+    	    $CLOSE (FAB=FAB);
+    	    LIB$FREE_VM (%REF (IOC_S_IOCDEF), IOC);
+    	    RETURN 0;
+    	END;
+    	IF .FAB [FAB$W_MRS] EQL 0 THEN
+    	    IF .XABFHC [XAB$W_LRL] EQL 0 THEN
+    	    	RAB [RAB$W_USZ] = 1024
+    	    ELSE
+    	    	RAB [RAB$W_USZ] = .XABFHC [XAB$W_LRL]
+    	ELSE
+    	    RAB [RAB$W_USZ] = .FAB [FAB$W_MRS];
+    	FAB [FAB$L_XAB] = 0;
+    	STATUS = LIB$GET_VM (%REF (.RAB [RAB$W_USZ]), RAB [RAB$L_UBF]);
+    	IF NOT .STATUS THEN
+    	BEGIN
+    	    SIGNAL (WCP__CANTIND, 0, .STATUS);
+    	    $CLOSE (FAB=FAB);
+    	    LIB$FREE_VM (%REF (IOC_S_IOCDEF), IOC);
+    	    RETURN 0;
+    	END;
+    END;
+
+    INSQUE (.IOC, IOCQUE [IOC_L_FLINK]);
+
+    1
+
+END; ! INDIRECT
+
+END
+ELUDOM

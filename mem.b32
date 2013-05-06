@@ -1,0 +1,461 @@
+%TITLE 'MEM'
+MODULE MEM (IDENT='V1.0-2',
+            ADDRESSING_MODE (EXTERNAL=GENERAL, NONEXTERNAL=LONG_RELATIVE)) =
+BEGIN
+!++
+! FACILITY: 	    WATCHER
+!
+! ABSTRACT: 	    Memory management routines
+!
+! MODULE DESCRIPTION:
+!
+!   This module contains memory management routines used by Watcher.
+!
+! AUTHOR:   	    M. Madison
+!
+! Copyright (c) 2010, Matthew Madison.
+!
+! All rights reserved.
+!
+! Redistribution and use in source and binary forms, with or without
+! modification, are permitted provided that the following conditions
+! are met:
+!
+!     * Redistributions of source code must retain the above
+!       copyright notice, this list of conditions and the following
+!       disclaimer.
+!     * Redistributions in binary form must reproduce the above
+!       copyright notice, this list of conditions and the following
+!       disclaimer in the documentation and/or other materials provided
+!       with the distribution.
+!     * Neither the name of the copyright owner nor the names of any
+!       other contributors may be used to endorse or promote products
+!       derived from this software without specific prior written
+!       permission.
+!
+! THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS
+! "AS IS" AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT
+! LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR
+! A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT
+! OWNER OR CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL,
+! SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT
+! LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE,
+! DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY
+! THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
+! (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
+! OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+!
+! CREATION DATE:    05-MAR-2000
+!
+! MODIFICATION HISTORY:
+!
+!   05-MAR-2000	V1.0	Madison	    Initial coding.
+!   07-MAY-2005 V1.0-1  Madison     Use correct address in MEM_FREEID.
+!   06-SEP-2010 V1.0-2  Sneddon     Updated license to BSD at request of M. Madison.
+!--
+    LIBRARY 'SYS$LIBRARY:STARLET';
+    LIBRARY 'WATCHER';
+    LIBRARY 'WATCHER_PRIVATE';
+
+    FORWARD ROUTINE
+    	MEM_GETPRC,
+    	MEM_FREEPRC,
+    	MEM_GETCHK,
+    	MEM_FREECHK,
+    	MEM_GETID,
+    	MEM_FREEID,
+    	MEM_GETCTR,
+    	MEM_FREECTR;
+
+    EXTERNAL ROUTINE
+    	LIB$CREATE_VM_ZONE, LIB$GET_VM, LIB$FREE_VM;
+
+    OWN
+    	prczone	: INITIAL (0),
+    	chkzone	: INITIAL (0),
+    	idzone	: INITIAL (0),
+    	ctrzone : INITIAL (0);
+
+
+%SBTTL 'MEM_GETPRC'
+GLOBAL ROUTINE MEM_GETPRC (prc_a_a) = 
+BEGIN
+!++
+! FUNCTIONAL DESCRIPTION:
+!
+!   Allocates a PRC string out of the PRC zone.
+!
+! RETURNS:  	pointer to PRC structure
+!
+! PROTOTYPE:
+!
+!   MEM_GETPRC SIZE
+!
+! IMPLICIT INPUTS:  None.
+!
+! IMPLICIT OUTPUTS: None.
+!
+! COMPLETION CODES:
+!
+!   non-0: PRC allocated
+!   0:     allocation failure
+!
+! SIDE EFFECTS:
+!
+!   Creates PRC zone on first invocation.
+!
+!--
+
+    LOCAL
+        status;
+
+    IF .prczone EQL 0 THEN
+    BEGIN
+    	status = LIB$CREATE_VM_ZONE (prczone, %REF (LIB$K_VM_FIXED),
+    	    	    	    	     %REF (PRC_S_PRCDEF),
+    	    	    	    	     %REF (LIB$M_VM_GET_FILL0 OR LIB$M_VM_EXTEND_AREA
+    	    	    	    	    	   OR LIB$M_VM_FREE_FILL1), 0, 0, 0, 0, 0, 0,
+    	    	    	    	     %ASCID'WATCHER_PRC_ZONE');
+    	IF NOT .status THEN
+    	    SIGNAL_STOP (.status);
+    END;
+
+    status = LIB$GET_VM (%REF (PRC_S_PRCDEF), .prc_a_a, prczone);
+
+    IF NOT .status THEN
+    	SIGNAL_STOP (.status);
+
+    .status
+
+END; ! MEM_GETPRC
+
+%SBTTL 'MEM_FREEPRC'
+GLOBAL ROUTINE MEM_FREEPRC (prc_a_a) = 
+BEGIN
+!++
+! FUNCTIONAL DESCRIPTION:
+!
+!   Frees a text block allocated with MEM_GETPRC.
+!
+! RETURNS:  	cond_value, longword (unsigned), write only, by value
+!
+! PROTOTYPE:
+!
+!   MEM_FREEPRC txt
+!
+! IMPLICIT INPUTS:  None.
+!
+! IMPLICIT OUTPUTS: None.
+!
+! COMPLETION CODES:
+!
+!   SS$_NORMAL:	    	normal successful completion.
+!
+! SIDE EFFECTS:
+!
+!   None.
+!--
+
+    BIND
+    	prc = .prc_a_a	: REF PRCDEF;
+
+    LOCAL
+    	status;
+
+    IF .prc [PRC_A_IDLIST] NEQA 0 THEN
+    	MEM_FREEID (prc [PRC_A_IDLIST]);
+
+    status = LIB$FREE_VM (%REF (PRC_S_PRCDEF), .prc_a_a, prczone);
+
+    IF NOT .status THEN
+    	SIGNAL_STOP (.status);
+
+    .status
+
+END; ! MEM_FREEPRC
+
+%SBTTL 'MEM_GETCHK'
+GLOBAL ROUTINE MEM_GETCHK (chk_a_a) = 
+BEGIN
+!++
+! FUNCTIONAL DESCRIPTION:
+!
+!   Allocates a CHKDEF structure out of the CHK zone.
+!
+! RETURNS:  	pointer to CHK structure
+!
+! PROTOTYPE:
+!
+!   MEM_GETCHK  rcpt
+!
+! IMPLICIT INPUTS:  None.
+!
+! IMPLICIT OUTPUTS: None.
+!
+! COMPLETION CODES:
+!
+!   any of those from LIB$GET_VM.
+!
+! SIDE EFFECTS:
+!
+!   Creates CHKZONE on first invocation.
+!
+!--
+    LOCAL
+        status;
+
+    IF .chkzone EQL 0 THEN
+    BEGIN
+    	status = LIB$CREATE_VM_ZONE (chkzone, %REF (LIB$K_VM_FIXED),
+    	    	    	    	     %REF (CHK_S_CHKDEF),
+    	    	    	    	     %REF (LIB$M_VM_GET_FILL0 OR LIB$M_VM_EXTEND_AREA
+    	    	    	    	    	   OR LIB$M_VM_FREE_FILL1), 0, 0, 0, 0, 0, 0,
+    	    	    	    	     %ASCID'MX_CHK_ZONE');
+    	IF NOT .status THEN
+    	    SIGNAL_STOP (.status);
+    END;
+
+    status = LIB$GET_VM (%REF (CHK_S_CHKDEF), .chk_a_a, chkzone);
+
+    IF NOT .status THEN
+    	SIGNAL_STOP (.status);
+
+    .status
+
+END; ! MEM_GETCHK
+
+%SBTTL 'MEM_FREECHK'
+GLOBAL ROUTINE MEM_FREECHK (chk_a_a) = 
+BEGIN
+!++
+! FUNCTIONAL DESCRIPTION:
+!
+!   Frees a CHKDEF block allocated with MEM_GETCHK.
+!
+! RETURNS:  	cond_value, longword (unsigned), write only, by value
+!
+! PROTOTYPE:
+!
+!   MEM_FREECHK txt
+!
+! IMPLICIT INPUTS:  None.
+!
+! IMPLICIT OUTPUTS: None.
+!
+! COMPLETION CODES:
+!
+!   SS$_NORMAL:	    	normal successful completion.
+!
+! SIDE EFFECTS:
+!
+!   None.
+!--
+
+    LOCAL
+    	status;
+
+    status = LIB$FREE_VM (%REF (CHK_S_CHKDEF), .chk_a_a, chkzone);
+
+    IF NOT .status THEN
+    	SIGNAL_STOP (.status);
+
+    .status
+
+END; ! MEM_FREECHK
+
+%SBTTL 'MEM_GETID'
+GLOBAL ROUTINE MEM_GETID (id_a_a) = 
+BEGIN
+!++
+! FUNCTIONAL DESCRIPTION:
+!
+!   Allocates a IDDEF structure out of the ID zone.
+!
+! RETURNS:  	pointer to ID structure
+!
+! PROTOTYPE:
+!
+!   MEM_GETID  rcpt
+!
+! IMPLICIT INPUTS:  None.
+!
+! IMPLICIT OUTPUTS: None.
+!
+! COMPLETION CODES:
+!
+!   any of those from LIB$GET_VM.
+!
+! SIDE EFFECTS:
+!
+!   Creates IDZONE on first invocation.
+!
+!--
+
+    LOCAL
+    	status;
+
+    IF .idzone EQL 0 THEN
+    BEGIN
+    	status = LIB$CREATE_VM_ZONE (idzone, %REF (LIB$K_VM_FIXED),
+    	    	    	    	     %REF (ID_S_IDDEF),
+    	    	    	    	     %REF (LIB$M_VM_GET_FILL0 OR LIB$M_VM_EXTEND_AREA
+    	    	    	    	    	   OR LIB$M_VM_FREE_FILL1), 0, 0, 0, 0, 0, 0,
+    	    	    	    	     %ASCID'MX_ID_ZONE');
+    	IF NOT .status THEN
+    	    SIGNAL_STOP (.status);
+    END;
+
+    status = LIB$GET_VM (%REF (ID_S_IDDEF), .id_a_a, idzone);
+    IF NOT .status THEN
+    	SIGNAL_STOP (.status);
+
+    .status
+
+END; ! MEM_GETID
+
+%SBTTL 'MEM_FREEID'
+GLOBAL ROUTINE MEM_FREEID (id_a_a) = 
+BEGIN
+!++
+! FUNCTIONAL DESCRIPTION:
+!
+!   Frees a IDDEF block allocated with MEM_GETID.
+!
+! RETURNS:  	cond_value, longword (unsigned), write only, by value
+!
+! PROTOTYPE:
+!
+!   MEM_FREEID txt
+!
+! IMPLICIT INPUTS:  None.
+!
+! IMPLICIT OUTPUTS: None.
+!
+! COMPLETION CODES:
+!
+!   SS$_NORMAL:	    	normal successful completion.
+!
+! SIDE EFFECTS:
+!
+!   None.
+!--
+    BIND
+    	id_a	= .id_a_a   : REF IDDEF;
+
+    LOCAL
+    	status,
+    	idp 	: REF IDDEF,
+    	idpnext	: REF IDDEF;
+
+    status = SS$_NORMAL;
+
+    idp = .id_a;
+    WHILE .idp NEQA 0 DO
+    BEGIN
+    	idpnext = .idp [ID_L_FLINK];
+    	status = LIB$FREE_VM (%REF (ID_S_IDDEF), idp, idzone);
+    	IF NOT .status THEN
+    	    SIGNAL_STOP (.status);
+    	idp = .idpnext;
+    END;
+
+    .status
+
+END; ! MEM_FREEID
+
+%SBTTL 'MEM_GETCTR'
+GLOBAL ROUTINE MEM_GETCTR (ctr_a_a) = 
+BEGIN
+!++
+! FUNCTIONAL DESCRIPTION:
+!
+!   Allocates a CTR string out of the CTR zone.
+!
+! RETURNS:  	pointer to CTR structure
+!
+! PROTOTYPE:
+!
+!   MEM_GETCTR SIZE
+!
+! IMPLICIT INPUTS:  None.
+!
+! IMPLICIT OUTPUTS: None.
+!
+! COMPLETION CODES:
+!
+!   non-0: CTR allocated
+!   0:     allocation failure
+!
+! SIDE EFFECTS:
+!
+!   Creates CTR zone on first invocation.
+!
+!--
+
+    LOCAL
+        status;
+
+    IF .ctrzone EQL 0 THEN
+    BEGIN
+    	status = LIB$CREATE_VM_ZONE (ctrzone, %REF (LIB$K_VM_FIXED),
+    	    	    	    	     %REF (CTR_S_CTRDEF),
+    	    	    	    	     %REF (LIB$M_VM_GET_FILL0 OR LIB$M_VM_EXTEND_AREA
+    	    	    	    	    	   OR LIB$M_VM_FREE_FILL1), 0, 0, 0, 0, 0, 0,
+    	    	    	    	     %ASCID'WATCHER_CTR_ZONE');
+    	IF NOT .status THEN
+    	    SIGNAL_STOP (.status);
+    END;
+
+    status = LIB$GET_VM (%REF (CTR_S_CTRDEF), .ctr_a_a, ctrzone);
+
+    IF NOT .status THEN
+    	SIGNAL_STOP (.status);
+
+    .status
+
+END; ! MEM_GETCTR
+
+%SBTTL 'MEM_FREECTR'
+GLOBAL ROUTINE MEM_FREECTR (ctr_a_a) = 
+BEGIN
+!++
+! FUNCTIONAL DESCRIPTION:
+!
+!   Frees a text block allocated with MEM_GETCTR.
+!
+! RETURNS:  	cond_value, longword (unsigned), write only, by value
+!
+! PROTOTYPE:
+!
+!   MEM_FREECTR txt
+!
+! IMPLICIT INPUTS:  None.
+!
+! IMPLICIT OUTPUTS: None.
+!
+! COMPLETION CODES:
+!
+!   SS$_NORMAL:	    	normal successful completion.
+!
+! SIDE EFFECTS:
+!
+!   None.
+!--
+
+    BIND
+    	ctr = .ctr_a_a	: REF CTRDEF;
+
+    LOCAL
+    	status;
+
+    status = LIB$FREE_VM (%REF (CTR_S_CTRDEF), .ctr_a_a, ctrzone);
+
+    IF NOT .status THEN
+    	SIGNAL_STOP (.status);
+
+    .status
+
+END; ! MEM_FREECTR
+
+END
+ELUDOM

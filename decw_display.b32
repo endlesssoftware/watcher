@@ -1,0 +1,294 @@
+%TITLE 'DECW_DISPLAY'
+MODULE DECW_DISPLAY (IDENT='V2.1-1') =
+BEGIN
+!++
+! FACILITY: 	    WATCHER
+!
+! ABSTRACT: 	    DECwindows display-related routines.
+!
+! MODULE DESCRIPTION:
+!
+!   description
+!
+! AUTHOR:   	    M. Madison
+!
+! Copyright (c) 2010, Matthew Madison.
+!
+! All rights reserved.
+!
+! Redistribution and use in source and binary forms, with or without
+! modification, are permitted provided that the following conditions
+! are met:
+!
+!     * Redistributions of source code must retain the above
+!       copyright notice, this list of conditions and the following
+!       disclaimer.
+!     * Redistributions in binary form must reproduce the above
+!       copyright notice, this list of conditions and the following
+!       disclaimer in the documentation and/or other materials provided
+!       with the distribution.
+!     * Neither the name of the copyright owner nor the names of any
+!       other contributors may be used to endorse or promote products
+!       derived from this software without specific prior written
+!       permission.
+!
+! THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS
+! "AS IS" AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT
+! LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR
+! A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT
+! OWNER OR CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL,
+! SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT
+! LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE,
+! DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY
+! THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
+! (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
+! OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+!
+! CREATION DATE:    21-MAR-1990
+!
+! MODIFICATION HISTORY:
+!
+!   21-MAR-1990	V1.0	Madison	    Initial coding.
+!   05-JUL-1990	V1.0-1	Madison	    Strip leading underscore.
+!   31-OCT-1990	V1.0-2	Madison	    Fix PCB reference.
+!   15-JUL-1997	V2.0	Madison	    Add routine to get display info.
+!   01-JAN-2005 V2.1    Madison     IA64 support.
+!   06-SEP-2010 V2.1-1  Sneddon     Updated license to BSD at request of M. Madison.
+!--
+    LIBRARY 'SYS$LIBRARY:LIB';
+
+    FORWARD ROUTINE
+	DECW_DISPLAY,
+	GET_JIB,
+    	DECW_DISPLAY_INFO;
+
+    LITERAL
+    	IO$M_WS_DISPLAY	    	    = %X'40',
+    	DECW$C_WS_DSP_NODE  	    = 1,
+    	DECW$C_WS_DSP_TRANSPORT	    = 2,
+    	DECW$C_WS_DSP_SERVER	    = 3,
+    	DECW$C_WS_DSP_SCREEN	    = 4,
+    	DECW$C_WS_DSP_NALL  	    = 9;
+
+%IF %BLISS (BLISS32V) %THEN
+    MACRO
+        ALIAS = %;
+    LINKAGE
+    	R0JSB = JSB (REGISTER=0) : PRESERVE(1,2,3,4,5) NOTUSED(6,7,8,9,10,11);
+    EXTERNAL ROUTINE
+    	EXE$EPID_TO_PCB : R0JSB ADDRESSING_MODE (GENERAL),
+%ELSE
+    EXTERNAL ROUTINE
+    	EXE$CVT_EPID_TO_PCB : EXE$CVT_EPID_TO_PCB_LINKAGE ADDRESSING_MODE (GENERAL),
+%FI
+	LIB$SYS_FAO 	    : BLISS ADDRESSING_MODE (GENERAL),
+    	STR$COPY_R  	    : BLISS ADDRESSING_MODE (GENERAL),
+	STR$FREE1_DX	    : BLISS ADDRESSING_MODE (GENERAL);
+
+%SBTTL 'DECW_DISPLAY'
+GLOBAL ROUTINE DECW_DISPLAY (PID, DISP_A, ACMODE) = 
+BEGIN
+!++
+! FUNCTIONAL DESCRIPTION:
+!
+!   Given an external PID, returns the equivalence string of
+!   DECW$DISPLAY, if any, from the PID's job logical name table.
+!
+! RETURNS:  	cond_value, longword (unsigned), write only, by value
+!
+! PROTOTYPE:
+!
+!   DECW_DISPLAY pid, disp, acmode
+!
+! pid:	process_id, longword (unsigned), read only, by reference
+! disp: char_string, character string, write only, by descriptor
+!
+! IMPLICIT INPUTS:  None.
+!
+! IMPLICIT OUTPUTS: None.
+!
+! COMPLETION CODES:
+!
+!   SS$_NORMAL:	    	normal successful completion.
+!
+! SIDE EFFECTS:
+!
+!   None.
+!--
+    BIND
+    	DISP	= .DISP_A	: BLOCK [,BYTE];
+
+    LOCAL
+    	JIB 	    : ALIAS UNSIGNED,
+    	TABNAM	    : BLOCK [DSC$K_S_BLN,BYTE],
+    	DISPLEN	    : ALIAS WORD,
+    	DISPBUF	    : ALIAS VECTOR [255,BYTE],
+    	LNMLST	    : $ITMLST_DECL (ITEMS=1),
+    	ARGLST	    : VECTOR [3],
+    	STATUS;
+
+    ARGLST [0] = 2;
+    ARGLST [1] = .PID;
+    ARGLST [2] = JIB;
+
+    STATUS = $CMKRNL (ROUTIN=GET_JIB, ARGLST=ARGLST);
+    IF NOT .STATUS THEN RETURN .STATUS;
+
+    $INIT_DYNDESC (TABNAM);
+    LIB$SYS_FAO (%ASCID'LNM$JOB_!XL', 0, TABNAM, .JIB);
+
+    $ITMLST_INIT (ITMLST=LNMLST,
+    	(ITMCOD=LNM$_STRING, BUFSIZ=%ALLOCATION (DISPBUF), BUFADR=DISPBUF,
+    	    RETLEN=DISPLEN));
+
+    STATUS = $TRNLNM (TABNAM=TABNAM, LOGNAM=%ASCID'DECW$DISPLAY',
+    	ACMODE=ACMODE, ITMLST=LNMLST);
+    STR$FREE1_DX (TABNAM);
+
+    IF .DISPBUF [0] EQL %C'_' THEN DISPLEN = .DISPLEN-1;
+
+    IF .STATUS THEN STR$COPY_R (DISP, DISPLEN,
+    	    (IF .DISPBUF [0] EQL %C'_' THEN DISPBUF [1] ELSE DISPBUF));
+
+    .STATUS
+
+END; ! DECW_DISPLAY
+
+%SBTTL 'GET_JIB'
+ROUTINE GET_JIB (PID, JIB_A) = 
+BEGIN
+!++
+! FUNCTIONAL DESCRIPTION:
+!
+!   Given a PID, gets a JIB address.
+!
+! RETURNS:  	cond_value, longword (unsigned), write only, by value
+!
+! PROTOTYPE:
+!
+!   GET_JIB
+!
+! IMPLICIT INPUTS:  None.
+!
+! IMPLICIT OUTPUTS: None.
+!
+! COMPLETION CODES:
+!
+!   SS$_NORMAL:	    	normal successful completion.
+!
+! SIDE EFFECTS:
+!
+!   None.
+!--
+    LOCAL
+    	PCB : REF BLOCK [,BYTE];
+
+    .JIB_A = 0;
+%IF %BLISS (BLISS32V) %THEN
+    PCB = EXE$EPID_TO_PCB (.PID);
+%ELSE
+    PCB = EXE$CVT_EPID_TO_PCB (.PID);
+%FI
+    IF .PCB NEQA 0 THEN
+    BEGIN
+    	.JIB_A = .PCB [PCB$L_JIB];
+    	RETURN SS$_NORMAL;
+    END;
+
+    SS$_NONEXPR
+
+END; ! GET_JIB
+
+%SBTTL 'DECW_DISPLAY_INFO'
+GLOBAL ROUTINE DECW_DISPLAY_INFO (disp_a, info_a, retlen_a) = 
+BEGIN
+!++
+! FUNCTIONAL DESCRIPTION:
+!
+!   Given a DECwindows display device, fetches the transport,
+!   node, server, and screen info for it.  The information is
+!   returned in a string of the form:
+!
+!   	transport/node:server.screen
+!
+!   e.g.,  LOCAL/0:0.0  or TCPIP/Node.Blah.Com:0.0
+!
+! RETURNS:  	cond_value, longword (unsigned), write only, by value
+!
+! PROTOTYPE:
+!
+!   DECW_DISPLAY_INFO  disp, info [,retlen]
+!
+!   disp:   char_string, read only, by descriptor
+!   info:   char_string, write only, by descriptor (static or dynamic)
+!   retlen: word_unsigned, write only, by reference
+!
+! IMPLICIT INPUTS:  None.
+!
+! IMPLICIT OUTPUTS: None.
+!
+! COMPLETION CODES:
+!
+!   SS$_NORMAL:	    	normal successful completion.
+!
+! SIDE EFFECTS:
+!
+!   None.
+!--
+
+    BUILTIN
+    	ACTUALCOUNT;
+
+    LOCAL
+    	status,
+    	node	    : VECTOR [1024,BYTE],
+    	xport	    : VECTOR [32,BYTE],
+    	server	    : VECTOR [32,BYTE],
+    	screen	    : VECTOR [32,BYTE],
+    	iosb	    : VECTOR [2,LONG],
+    	chan	    : WORD,
+    	nodelen	    : WORD,
+    	xportlen    : WORD,
+    	serverlen   : WORD,
+    	screenlen   : WORD;
+
+    status = $ASSIGN (DEVNAM=.disp_a, CHAN=chan);
+    IF NOT .status THEN RETURN .status;
+
+    status = $QIOW (CHAN=.chan, FUNC=IO$_SENSEMODE OR IO$M_WS_DISPLAY, IOSB=iosb,
+    	    	    P1=node, P2=%ALLOCATION (node), P3=DECW$C_WS_DSP_NODE);
+    IF .status THEN status = .iosb [0];
+    IF .status THEN nodelen = .iosb [1];
+    IF .status THEN
+    BEGIN
+    	status = $QIOW (CHAN=.chan, FUNC=IO$_SENSEMODE OR IO$M_WS_DISPLAY, IOSB=iosb,
+    	    	    	P1=xport, P2=%ALLOCATION (xport), P3=DECW$C_WS_DSP_TRANSPORT);
+    	IF .status THEN status = .iosb [0];
+    	IF .status THEN xportlen = .iosb [1];
+    END;
+    IF .status THEN
+    BEGIN
+    	status = $QIOW (CHAN=.chan, FUNC=IO$_SENSEMODE OR IO$M_WS_DISPLAY, IOSB=iosb,
+    	    	    	P1=server, P2=%ALLOCATION (server), P3=DECW$C_WS_DSP_SERVER);
+    	IF .status THEN status = .iosb [0];
+    	IF .status THEN serverlen = .iosb [1];
+    END;
+    IF .status THEN
+    BEGIN
+    	status = $QIOW (CHAN=.chan, FUNC=IO$_SENSEMODE OR IO$M_WS_DISPLAY, IOSB=iosb,
+    	    	    	P1=screen, P2=%ALLOCATION (screen), P3=DECW$C_WS_DSP_SCREEN);
+    	IF .status THEN status = .iosb [0];
+    	IF .status THEN screenlen = .iosb [1];
+    END;
+    $DASSGN (CHAN=.chan);
+    IF NOT .status THEN RETURN .status;
+
+    LIB$SYS_FAO (%ASCID'!AD/!AD:!AD.!AD',
+    	    	 (IF ACTUALCOUNT () GTR 2 THEN .retlen_a ELSE 0), .info_a,
+    	    	 .xportlen, xport, .nodelen, node, .serverlen, server,
+    	    	 .screenlen, screen)
+
+END; ! DECW_DISPLAY_INFO
+
+END
+ELUDOM

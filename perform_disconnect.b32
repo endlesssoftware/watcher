@@ -1,0 +1,289 @@
+%TITLE 'PERFORM_DISCONNECT'
+MODULE PERFORM_DISCONNECT (IDENT='V1.1-1') =
+BEGIN
+!++
+! FACILITY: 	    PERFORM_DISCONNECT
+!
+! ABSTRACT: 	    Kernel-mode routine to do a virtual terminal disconnect.
+!
+! MODULE DESCRIPTION:
+!
+!   description
+!
+! AUTHOR:   	    M. Madison
+!
+! Copyright (c) 2010, Matthew Madison.
+!
+! All rights reserved.
+!
+! Redistribution and use in source and binary forms, with or without
+! modification, are permitted provided that the following conditions
+! are met:
+!
+!     * Redistributions of source code must retain the above
+!       copyright notice, this list of conditions and the following
+!       disclaimer.
+!     * Redistributions in binary form must reproduce the above
+!       copyright notice, this list of conditions and the following
+!       disclaimer in the documentation and/or other materials provided
+!       with the distribution.
+!     * Neither the name of the copyright owner nor the names of any
+!       other contributors may be used to endorse or promote products
+!       derived from this software without specific prior written
+!       permission.
+!
+! THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS
+! "AS IS" AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT
+! LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR
+! A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT
+! OWNER OR CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL,
+! SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT
+! LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE,
+! DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY
+! THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
+! (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
+! OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+!
+! CREATION DATE:    03-FEB-1993
+!
+! MODIFICATION HISTORY:
+!
+!   03-FEB-1993	V1.0	Madison	    Initial coding.
+!   01-SEP-1994	V1.0-1	Madison	    Make LIB reference VMS-version specific.
+!   06-FEB-1997	V1.0-2	Madison	    Use $TTYVECDEF-defined CLASS_DISCONNECT macro.
+!   01-JAN-2005 V1.1    Madison     IA64 support.
+!   06-SEP-2010 V1.1-1  Sneddon     Updated license to BSD at request of M. Madison.
+!--
+
+    LIBRARY 'LIBREQ_DIR:LIB';
+
+    FORWARD ROUTINE
+    	PERFORM_DISCONNECT,
+    	AFTER_PERFORM_DISCONNECT;
+
+%IF NOT %DECLARED (%QUOTE CLASS_DISCONNECT) %THEN
+    MACRO
+    	CLASS_DISCONNECT = 24,0,32,0%;
+%FI
+
+%IF NOT %BLISS(BLISS32V) %THEN
+    PSECT
+    	NODEFAULT = $$$BEGIN_LOCKED_CODE (READ,WRITE,NOEXECUTE),
+    	NODEFAULT = $$$END_LOCKED_CODE   (READ,WRITE,NOEXECUTE);
+
+    GLOBAL
+    	$$$LOCK_START	: PSECT ($$$BEGIN_LOCKED_CODE),
+    	$$$LOCK_END 	: PSECT ($$$END_LOCKED_CODE);
+%FI
+
+%SBTTL 'PERFORM_DISCONNECT'
+GLOBAL ROUTINE PERFORM_DISCONNECT (DEVNAM_A) = 
+BEGIN
+!++
+! FUNCTIONAL DESCRIPTION:
+!
+!   Does the K-mode dirty work for DISCONNECT.
+!
+! RETURNS:  	cond_value, longword (unsigned), write only, by value
+!
+! PROTOTYPE:
+!
+!   PERFORM_DISCONNECT  trmnam
+!
+! IMPLICIT INPUTS:  None.
+!
+! IMPLICIT OUTPUTS: None.
+!
+! COMPLETION CODES:
+!
+!   SS$_NORMAL:	    	normal successful completion.
+!
+! SIDE EFFECTS:
+!
+!   None.
+!--
+
+%IF %BLISS (BLISS32E) %THEN
+    LINKAGE
+    	CLS_ROUTINE = JSB (REGISTER=5) : NOPRESERVE (3,4,6,7,8,9,10,11);
+%FI
+%IF %BLISS (BLISS32V) %THEN
+    LINKAGE
+    	SCH_ROUTINE = JSB (REGISTER=4) : NOPRESERVE(0,1,2,3,5,6,7,8,9,10,11),
+    	IOC_ROUTINE = JSB (REGISTER=1, REGISTER=2, REGISTER=3; REGISTER=1)
+    	    	    	  : NOPRESERVE(4,5,6,7,8,9,10,11),
+    	CLS_ROUTINE = JSB (REGISTER=5) : NOPRESERVE (0,1,2,3,4,6,7,8,9,10,11);
+
+    EXTERNAL ROUTINE
+    	SCH$IOLOCKR 	: SCH_ROUTINE ADDRESSING_MODE (GENERAL),
+    	IOC$SEARCHDEV	: IOC_ROUTINE ADDRESSING_MODE (GENERAL),
+    	SCH$IOUNLOCK	: SCH_ROUTINE ADDRESSING_MODE (GENERAL);
+%ELSE
+    EXTERNAL ROUTINE
+    	SCH_STD$IOLOCKR     : ADDRESSING_MODE (GENERAL),
+    	IOC_STD$SEARCHDEV   : ADDRESSING_MODE (GENERAL),
+    	SCH_STD$IOUNLOCK    : ADDRESSING_MODE (GENERAL);
+%FI
+
+    EXTERNAL
+    	CTL$GL_PCB  	: REF BLOCK [,BYTE] ADDRESSING_MODE (GENERAL);
+
+    LOCAL
+    	UCB 	    : REF BLOCK [,BYTE],
+        DDB         : REF BLOCK [,BYTE],
+        SB          : REF BLOCK [,BYTE],
+    	CLASS_BASE  : REF BLOCK [,BYTE],
+    	TMP,
+    	STATUS;
+
+%IF %BLISS (BLISS32V) %THEN
+    SCH$IOLOCKR (.CTL$GL_PCB);
+%ELSE
+    SCH_STD$IOLOCKR (.CTL$GL_PCB);
+%FI
+
+%IF %BLISS (BLISS32V) %THEN
+    STATUS = IOC$SEARCHDEV (.DEVNAM_A, 0, 0; UCB);
+%ELSE
+    STATUS = IOC_STD$SEARCHDEV (.DEVNAM_A, UCB, DDB, SB);
+%FI
+    IF .STATUS THEN
+    BEGIN
+    	BIND
+    	    DEVCHR  = UCB [UCB$L_DEVCHAR]	: BLOCK [,BYTE],
+    	    DEVCHR2 = UCB [UCB$L_DEVCHAR2]	: BLOCK [,BYTE];
+    	IF .UCB [UCB$B_DEVCLASS] EQL DC$_TERM AND .DEVCHR [DEV$V_TRM]
+    	    	AND NOT .DEVCHR [DEV$V_NET] AND NOT (.DEVCHR2 [DEV$V_DET]
+    	    	    OR .DEVCHR2 [DEV$V_RTT] OR .DEVCHR2 [DEV$V_RED]) AND
+    	    	.UCB [UCB$L_TL_PHYUCB] NEQA .UCB
+    	THEN
+    	BEGIN
+    	    LOCAL
+    	    	U   : REF BLOCK [,BYTE];
+    	    U = .UCB;
+    	    STATUS = (WHILE 1 DO
+    	    	BEGIN
+    	    	    BIND DD = UCB [UCB$Q_DEVDEPEND] + 4 : BLOCK [,BYTE];
+    	    	    IF NOT .DD [TT2$V_DISCONNECT] THEN EXITLOOP 0;
+    	    	    UCB = .U [UCB$L_TL_PHYUCB];
+    	    	    IF .U EQLA .UCB THEN EXITLOOP 1;
+    	    	    U = .UCB;
+    	    	END);
+    	    CLASS_BASE = .UCB [UCB$L_TT_CLASS];
+    	    IF .STATUS AND .CLASS_BASE NEQA 0 THEN
+    	    BEGIN
+%IF %BLISS (BLISS32V) %THEN
+                SCH$IOUNLOCK (.CTL$GL_PCB);
+%ELSE
+    	    	SCH_STD$IOUNLOCK (.CTL$GL_PCB);
+%FI
+    	    	$DEVICELOCK (LOCKADDR=.UCB [UCB$L_DLCK],
+    	    	    LOCKIPL=.UCB [UCB$B_DIPL],
+    	    	    SAVIPL=TMP,
+    	    	    PRESERVE=NO);
+%IF %BLISS(BLISS32I) %THEN
+                (.CLASS_BASE [CLASS_DISCONNECT])(.UCB);
+%ELSE
+    	    	CLS_ROUTINE (.CLASS_BASE [CLASS_DISCONNECT], .UCB);
+%FI
+    	    	$DEVICEUNLOCK (LOCKADDR=.UCB [UCB$L_DLCK],
+    	    	    NEWIPL=.TMP, PRESERVE=NO);
+    	    	$SETIPL (NEWIPL=0);
+    	    	RETURN SS$_NORMAL;
+    	    END
+    	    ELSE STATUS = 2;!SS$_DEVREQERR;
+    	END
+    	ELSE STATUS = 4;!SS$_DEVREQERR;
+    END;
+
+%IF %BLISS (BLISS32V) %THEN
+    SCH$IOUNLOCK (.CTL$GL_PCB);
+%ELSE
+    SCH_STD$IOUNLOCK (.CTL$GL_PCB);
+%FI
+    $SETIPL (NEWIPL=0);
+
+    .STATUS
+
+END; ! PERFORM_DISCONNECT
+GLOBAL ROUTINE AFTER_PERFORM_DISCONNECT = (SS$_NORMAL);  ! dummy routine for LCKPAG
+
+%SBTTL 'LOCK_DISCONNECT_CODE'
+GLOBAL ROUTINE LOCK_DISCONNECT_CODE = 
+BEGIN
+!++
+! FUNCTIONAL DESCRIPTION:
+!
+!   Locks down the disconnect code (and linkage on AXP systems),
+!   which runs at high IPL.
+!
+! RETURNS:  	cond_value, longword (unsigned), write only, by value
+!
+! PROTOTYPE:
+!
+!   LOCK_DISCONNECT_CODE
+!
+! IMPLICIT INPUTS:  None.
+!
+! IMPLICIT OUTPUTS: None.
+!
+! COMPLETION CODES:
+!
+!   SS$_NORMAL:	    	normal successful completion.
+!
+! SIDE EFFECTS:
+!
+!   None.
+!--
+    LOCAL
+    	LCKLST	: VECTOR [2,LONG],
+%IF NOT %BLISS(BLISS32V) %THEN
+    	PGSIZE	: ALIAS,
+    	SYILST	: $ITMLST_DECL(ITEMS=1),
+%FI
+    	STATUS;
+
+%IF NOT %BLISS(BLISS32V) %THEN
+
+    $ITMLST_INIT(ITMLST=SYILST,
+    	(ITMCOD=SYI$_PAGE_SIZE, BUFSIZ=%ALLOCATION(PGSIZE), BUFADR=PGSIZE));
+    STATUS = $GETSYI(ITMLST=SYILST);
+    IF NOT .STATUS THEN RETURN .STATUS;
+
+!++
+! Because on AXP systems we have multiple PSECTs that must be locked down
+! (both code and linkage), and those PSECTs might not be on contiguous
+! pages, we probe each page between the starting and ending points of the
+! locked-down cluster to see if it exists before we try and lock it down.
+!--
+
+    LCKLST [0] = $$$LOCK_START;
+
+    WHILE (.LCKLST [0] LSSA $$$LOCK_END) DO
+    BEGIN
+    	LCKLST [1] = .LCKLST [0] + .PGSIZE-4;
+    	IF $PROBE (.LCKLST [0], 4, RQ, 0) THEN
+    	BEGIN
+    	    STATUS = $LKWSET (INADR=LCKLST);
+    	    IF NOT .STATUS THEN EXITLOOP;
+    	END;
+    	LCKLST [0] = .LCKLST [0] + .PGSIZE;
+    END;
+
+%ELSE
+
+! This code is for VAX only
+
+    LCKLST [0] = PERFORM_DISCONNECT;
+    LCKLST [1] = AFTER_PERFORM_DISCONNECT;
+
+    STATUS = $LKWSET (INADR=LCKLST);
+
+%FI
+
+    .STATUS
+
+END; ! LOCK_DISCONNECT_CODE
+
+END
+ELUDOM

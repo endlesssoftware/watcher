@@ -1,0 +1,114 @@
+!++
+! WCP.R32
+!
+!   REQUIRE file for Watcher Control Program.
+!
+!   Copyright (c) 2010, Matthew Madison.
+!
+!   All rights reserved.
+!
+!   Redistribution and use in source and binary forms, with or without
+!   modification, are permitted provided that the following conditions
+!   are met:
+!
+!       * Redistributions of source code must retain the above
+!         copyright notice, this list of conditions and the following
+!         disclaimer.
+!       * Redistributions in binary form must reproduce the above
+!         copyright notice, this list of conditions and the following
+!         disclaimer in the documentation and/or other materials provided
+!         with the distribution.
+!       * Neither the name of the copyright owner nor the names of any
+!         other contributors may be used to endorse or promote products
+!         derived from this software without specific prior written
+!         permission.
+!
+!   THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS
+!   "AS IS" AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT
+!   LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR
+!   A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT
+!   OWNER OR CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL,
+!   SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT
+!   LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE,
+!   DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY
+!   THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
+!   (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
+!   OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+!
+!--
+
+    LIBRARY 'WATCHER';
+    LIBRARY 'FIELDS';
+
+    _DEF (DFLT)
+    	DFLT_L_CFGCODE	    = _LONG,	! used only by CONFIG routines
+    	DFLT_L_RESERVED1    = _LONG,	! not used
+    	DFLT_Q_WARNTIME	    = _QUAD,
+    	DFLT_Q_FORCETIME    = _QUAD,
+    	DFLT_L_FLAGS	    = _LONG,
+    	_OVERLAY (DFLT_L_FLAGS)
+    	    DFLT_V_CPU	    = _BIT,
+    	    DFLT_V_PIO	    = _BIT,
+    	    DFLT_V_TIO	    = _BIT,
+    	    DFLT_V_WARN	    = _BIT,
+    	    DFLT_V_FORCE    = _BIT,
+    	    DFLT_V_DISCON   = _BIT,
+    	    DFLT_V_VERIFY   = _BIT,
+    	    DFLT_V_EXIT	    = _BIT,
+    	_ENDOVERLAY
+    	DFLT_L_DCPU 	    = _LONG,
+    	DFLT_L_DPIO 	    = _LONG,
+    	DFLT_L_DTIO 	    = _LONG,
+    	DFLT_B_PRIMEDAYS    = _BYTE
+    _ENDDEF (DFLT);
+
+    MACRO
+    	TABLE (TABNAM, ITEM1) [] =
+    	    %IF %LENGTH EQL 1 %THEN %EXITMACRO %FI
+    	    LITERAL %NAME (TABNAM, '_COUNT') = %LENGTH - 1;
+    	    PSECT OWN = $PLIT$;
+    	    OWN TABNAM : VECTOR [%NAME (TABNAM, '_COUNT'),LONG] INITIAL (
+    	    	%ASCID ITEM1
+    	    	%IF NOT %NULL (%REMAINING) %THEN FILLTAB (%REMAINING) %FI);
+    	    PSECT OWN = $OWN$;
+    	%,
+    	FILLTAB (X) [] =
+    	    , %ASCID X %IF NOT %NULL (%REMAINING) %THEN FILLTAB (%REMAINING) %FI
+    	%;
+
+%IF %BLISS (BLISS32E) OR %BLISS (BLISS32I) %THEN
+    MACRO LIB$TPARSE = LIB$TABLE_PARSE%;
+%FI
+
+!+
+! The following macro is for defining TPARSE/TABLE_PARSE action routines
+!-
+        MACRO
+            TPA_ROUTINE (NAME, ARGLST) =
+            %IF %BLISS(BLISS32E) OR %BLISS(BLISS32I) %THEN
+                %IF NOT %DECLARED (TPA_ARGCNT) %THEN
+                    COMPILETIME TPA_ARGCNT=0; %FI
+                %ASSIGN(TPA_ARGCNT, 0)
+                ROUTINE NAME (STATE : REF VECTOR [,LONG]) =
+                BEGIN
+                    BIND
+                        TPA_ROUTINE_ARGS (%REMOVE (ARGLST));
+            %ELSE
+                ROUTINE NAME (%REMOVE (ARGLST)) =
+                BEGIN
+            %FI%,
+            TPA_ROUTINE_ARGS [ARG] =
+                %ASSIGN (TPA_ARGCNT, TPA_ARGCNT+1)
+                ARG = STATE [TPA_ARGCNT]
+            %;
+
+    EXTERNAL ROUTINE
+    	G_HAT (CLI$DCL_PARSE, CLI$GET_VALUE, CLI$DISPATCH, CLI$PRESENT,
+    	    LIB$PUT_OUTPUT, LBR$OUTPUT_HELP, LIB$CONVERT_DATE_STRING,
+    	    LIB$GET_VM, LIB$FREE_VM, STR$FREE1_DX, STR$COPY_DX, STR$COPY_R,
+    	    STR$POSITION, STR$PREFIX, STR$APPEND, STR$COPY_R, LIB$SYS_FAO,
+    	    LIB$TPARSE, STR$GET1_DX, LIB$ANALYZE_SDESC);
+
+
+    EXTERNAL LITERAL
+    	CLI$_PRESENT, CLI$_ABSENT, CLI$_NEGATED;

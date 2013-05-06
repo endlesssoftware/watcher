@@ -1,0 +1,257 @@
+!++
+!
+! WATCHER.R32
+!
+!   REQUIRE file for WATCHER, WCP.
+!
+! AUTHOR:   	    M. Madison
+!
+! Copyright (c) 2010, Matthew Madison.
+!
+! All rights reserved.
+!
+! Redistribution and use in source and binary forms, with or without
+! modification, are permitted provided that the following conditions
+! are met:
+!
+!     * Redistributions of source code must retain the above
+!       copyright notice, this list of conditions and the following
+!       disclaimer.
+!     * Redistributions in binary form must reproduce the above
+!       copyright notice, this list of conditions and the following
+!       disclaimer in the documentation and/or other materials provided
+!       with the distribution.
+!     * Neither the name of the copyright owner nor the names of any
+!       other contributors may be used to endorse or promote products
+!       derived from this software without specific prior written
+!       permission.
+!
+! THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS
+! "AS IS" AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT
+! LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR
+! A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT
+! OWNER OR CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL,
+! SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT
+! LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE,
+! DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY
+! THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
+! (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
+! OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+!
+! CREATION DATE:    31-AUG-1989
+!
+! MODIFICATION HISTORY:
+!
+!   31-AUG-1989	V1.0	Madison	    Initial coding.
+!   15-MAR-1990	V1.1	Madison	    Separated some stuff to WATCHER_PRIVATE.
+!   22-MAR-1991	V1.2	Madison	    Add MULTIWARN bit to GBLDEF. (Kimura@HAC)
+!   07-APR-1992	V1.3	Madison	    Add NOACTION, IMGNAME.
+!   03-FEB-1993	V1.4	Madison	    Add EXIT.
+!   06-SEP-2010 V1.4-1  Sneddon     Updated license to BSD at request of M. Madison.
+!--
+%IF NOT %BLISS(BLISS32V) %THEN
+    LIBRARY 'SYS$LIBRARY:STARLET';
+%ELSE
+    MACRO ALIAS = %;
+%FI
+    LIBRARY 'FIELDS';
+
+    BUILTIN
+    	INSQUE, REMQUE;
+
+!+
+! GBLDEF
+!
+!   WATCHER global information structure.
+!
+!-
+    LITERAL
+    	GBL_S_LOGFNAM	= 255;
+
+    _DEF (GBL)
+    	GBL_L_RECTYPE	= _LONG,  ! used only by LOAD_CONFIG/SAVE_CONFIG
+    	GBL_Q_INTERVAL	= _QUAD,
+    	GBL_L_OPERATOR	= _LONG,
+    	GBL_L_FLAGS 	= _LONG,
+    	_OVERLAY (GBL_L_FLAGS)
+    	    GBL_V_OPERATOR  = _BIT,
+    	    GBL_V_LOGFILE   = _BIT,
+    	    GBL_V_BELL	    = _BIT,
+    	    GBL_V_IDENTS    = _BIT,
+    	    GBL_V_TRACE	    = _BIT,
+    	    GBL_V_DECW	    = _BIT,
+    	    GBL_V_MULTIWARN = _BIT,
+    	    GBL_V_NOACTION  = _BIT,
+    	    GBL_V_NOINSWAP  = _BIT,
+    	_ENDOVERLAY
+    	GBL_L_DBGMSK	= _LONG,
+    	GBL_W_LOGFLEN   = _WORD,
+    	GBL_T_LOGFNAM   = _BYTES (GBL_S_LOGFNAM),
+    	_ALIGN (QUAD)
+    	GBL_Q_MWINTVL	= _QUAD
+    _ENDDEF (GBL);
+
+    LITERAL
+    	DBG_M_MAIN  	= 1,
+    	DBG_M_EXCLUDE	= 2,
+    	DBG_M_OVERRIDE	= 4,
+    	DBG_M_CHANGE	= 8,
+    	DBG_M_COLLECT	= 16;
+
+!+
+! TRMDEF
+!
+!   Structure used to define watched terminals.
+!-
+
+    LITERAL
+    	TRM_S_DEVNAM	= 64,
+    	TRM_S_ACCNAM	= 64,
+    	TRM_S_GRPNAM	= 32;
+
+    _DEF (TRM)
+    	TRM_L_FLINK 	= _LONG,
+    	TRM_L_BLINK 	= _LONG,
+    	TRM_Q_WARNTIME  = _QUAD,
+    	TRM_Q_FORCETIME = _QUAD,
+    	TRM_L_FLAGS	= _LONG,
+    	_OVERLAY (TRM_L_FLAGS)
+    	    TRM_V_CPU	    = _BIT,
+    	    TRM_V_PIO	    = _BIT,
+    	    TRM_V_TIO	    = _BIT,
+    	    TRM_V_DISCON    = _BIT,
+    	    TRM_V_WARN	    = _BIT,
+    	    TRM_V_FORCE	    = _BIT,
+    	    TRM_V_EXIT	    = _BIT,
+    	_ENDOVERLAY
+    	TRM_L_DCPU  	= _LONG,
+    	TRM_L_DPIO  	= _LONG,
+    	TRM_L_DTIO  	= _LONG,
+    	TRM_W_DEVLEN    = _WORD,
+    	TRM_T_DEVNAM    = _BYTES (TRM_S_DEVNAM),
+    	TRM_W_ACCLEN	= _WORD,
+    	TRM_T_ACCNAM	= _BYTES (TRM_S_ACCNAM),
+    	TRM_W_GRPLEN	= _WORD,
+    	TRM_T_GRPNAM	= _BYTES (TRM_S_GRPNAM)
+    _ENDDEF (TRM);
+
+!+
+! EXCDEF
+!
+!   Structure for exclusion and override records.
+!-
+
+    LITERAL
+    	EXC_S_TIMES 	= 28,	    	    ! 7 longwords
+    	EXC_S_UNAME 	= 32,
+    	EXC_S_TRMNAM	= TRM_S_DEVNAM,
+    	EXC_S_ACCNAM	= TRM_S_ACCNAM,
+    	EXC_S_IMGNAM	= 255;
+
+    _DEF (EXC)
+    	EXC_L_FLINK 	= _LONG,
+    	EXC_L_BLINK 	= _LONG,
+    	EXC_Q_PRIVMASK  = _QUAD,
+    	EXC_Q_WARNTIME  = _QUAD,
+    	EXC_Q_FORCETIME = _QUAD,
+    	EXC_L_UIC   	= _LONG,
+    	EXC_L_IDENT 	= _LONG,
+    	EXC_L_FLAGS 	= _LONG,
+    	_OVERLAY (EXC_L_FLAGS)
+    	    EXC_V_METRICS   = _BIT,
+    	    EXC_V_CPU	    = _BIT,
+    	    EXC_V_PIO	    = _BIT,
+    	    EXC_V_TIO	    = _BIT,
+    	    EXC_V_OVRWARN   = _BIT,
+    	    EXC_V_WARN	    = _BIT,
+    	    EXC_V_OVRFORCE  = _BIT,
+    	    EXC_V_FORCE	    = _BIT,
+    	    EXC_V_DISCON    = _BIT,
+    	    EXC_V_EXIT	    = _BIT,
+    	    EXC_V_OPERATOR  = _BIT,
+    	_ENDOVERLAY
+    	EXC_L_DCPU   	= _LONG,
+    	EXC_L_DPIO  	= _LONG,
+    	EXC_L_DTIO  	= _LONG,
+    	EXC_AL_TIMES    = _BYTES (EXC_S_TIMES),
+    	EXC_W_UNAMELEN  = _WORD,
+    	EXC_T_UNAME 	= _BYTES (EXC_S_UNAME),
+    	EXC_W_TRMNAMLEN = _WORD,
+    	EXC_T_TRMNAM    = _BYTES (EXC_S_TRMNAM),
+    	EXC_W_ACCNAMLEN	= _WORD,
+    	EXC_T_ACCNAM	= _BYTES (EXC_S_ACCNAM),
+    	EXC_W_IMGNAMLEN	= _WORD,
+    	EXC_T_IMGNAM	= _BYTES (EXC_S_IMGNAM)
+    _ENDDEF (EXC);
+
+!++
+! QUEDEF : generic queue header
+!--
+    FIELD
+    	QUE_FIELDS =
+    	SET
+    	    QUE_L_HEAD	= [0,0,32,0],
+    	    QUE_L_TAIL	= [4,0,32,0]
+    	TES;
+
+    LITERAL
+    	QUE_S_QUEDEF = 8;
+
+    MACRO
+    	QUEDEF = BLOCK [QUE_S_QUEDEF,BYTE] FIELD (QUE_FIELDS)%;
+
+!++
+! IDDEF: identifier list structure
+!   	 each cell holds up to 16 identifiers
+!--
+
+    LITERAL
+    	ID_K_MAXIDS = 16,
+    	ID_S_IDLIST = ID_K_MAXIDS*4;
+
+    _DEF (ID)
+    	ID_L_FLINK  	= _LONG,
+    	ID_L_COUNT  	= _LONG,
+    	ID_X_IDLIST 	= _BYTES (ID_S_IDLIST)
+    _ENDDEF (ID);
+
+    LITERAL
+    	WATCHER_K_MSGTYPE_RESET	    = 37,
+    	WATCHER_K_MSGTYPE_SHUTDOWN  = 193,
+    	WATCHER_K_MSGTYPE_DECW	    = 667;
+
+    MACRO
+    	G_HAT [RTN] =
+    	    RTN : ADDRESSING_MODE (GENERAL)%,
+    	INIT_QUEUE (X) [] =
+    	    BEGIN
+    	    	__INIT_QUEUE1 (X %IF NOT %NULL (%REMAINING) %THEN
+    	    	    	    	    , %REMAINING %FI);
+    	    END
+    	%,
+    	__INIT_QUEUE1 [X] =
+    	    BEGIN
+    	    	BIND Q = X : QUEDEF;
+    	    	Q [QUE_L_TAIL] = Q [QUE_L_HEAD] = Q [QUE_L_HEAD];
+    	    END
+    	%,
+    	INIT_DYNDESC (STR) [] =
+    	    BEGIN
+    	    	__INIT_DYNDESC1 (STR
+    	    	    %IF NOT %NULL (%REMAINING) %THEN , %REMAINING %FI)
+    	    END%,
+    	__INIT_DYNDESC1 [STR] =
+    	    BLOCK [STR, DSC$W_LENGTH;   DSC$K_S_BLN,BYTE] = 0;
+    	    BLOCK [STR, DSC$B_CLASS;    DSC$K_S_BLN,BYTE] = DSC$K_CLASS_D;
+    	    BLOCK [STR, DSC$B_DTYPE;    DSC$K_S_BLN,BYTE] = DSC$K_DTYPE_T;
+    	    BLOCK [STR, DSC$A_POINTER;  DSC$K_S_BLN,BYTE] = 0;
+    	%,
+
+    	FREE_STRINGS (STR) [] =
+    	    BEGIN
+    	    	EXTERNAL ROUTINE STR$FREE1_DX : BLISS ADDRESSING_MODE (GENERAL);
+    	    	__FREE_STRING1 (STR
+    	    	    %IF NOT %NULL (%REMAINING) %THEN , %REMAINING %FI);
+    	    END%,
+    	__FREE_STRING1 [STR] = STR$FREE1_DX (STR)
+    	%;

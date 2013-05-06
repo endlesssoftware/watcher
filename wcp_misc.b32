@@ -1,0 +1,717 @@
+%TITLE 'WCP_MISC'
+MODULE WCP_MISC (IDENT='V1.1-1') =
+BEGIN
+!++
+! FACILITY: 	    WCP WATCHER Control Program
+!
+! ABSTRACT: 	    Miscellaneous routines for WCP.
+!
+! MODULE DESCRIPTION:
+!
+!   description
+!
+! AUTHOR:   	    M. Madison
+!
+! Copyright (c) 2010, Matthew Madison.
+!
+! All rights reserved.
+!
+! Redistribution and use in source and binary forms, with or without
+! modification, are permitted provided that the following conditions
+! are met:
+!
+!     * Redistributions of source code must retain the above
+!       copyright notice, this list of conditions and the following
+!       disclaimer.
+!     * Redistributions in binary form must reproduce the above
+!       copyright notice, this list of conditions and the following
+!       disclaimer in the documentation and/or other materials provided
+!       with the distribution.
+!     * Neither the name of the copyright owner nor the names of any
+!       other contributors may be used to endorse or promote products
+!       derived from this software without specific prior written
+!       permission.
+!
+! THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS
+! "AS IS" AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT
+! LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR
+! A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT
+! OWNER OR CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL,
+! SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT
+! LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE,
+! DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY
+! THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
+! (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
+! OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+!
+! CREATION DATE:    16-NOV-1989
+!
+! MODIFICATION HISTORY:
+!
+!   16-NOV-1989	V1.0	Madison     Initial coding.
+!   04-FEB-1993	V1.1	Madison	    Include the MDMLIB routines we need.
+!   06-SEP-2010 V1.1-1  Sneddon     Updated license to BSD at request of M. Madison.
+!--
+    LIBRARY 'SYS$LIBRARY:STARLET';
+    LIBRARY 'SYS$LIBRARY:TPAMAC';
+    LIBRARY 'WATCHER';
+    LIBRARY 'WCP';
+
+    FORWARD ROUTINE
+    	FORMAT_PRIVS,
+    	FORMAT_OPCS,
+    	FORMAT_TIMES,
+    	ASC_TO_PRV_OR,
+    	ASC_TO_OPC_OR,
+    	CVT_ASCTOID,
+    	CVT_ASCTOID_STORE,
+    	PARSE_CFGFILE;
+
+!+
+!   Parsing-related stuff for CVT_ASCTOID
+!-
+
+    LITERAL
+    	TPA_C_LENGTH = TPA$C_LENGTH0 + 4;
+    MACRO
+    	TPA_L_IDVALPTR = TPA$C_LENGTH0,0,32,0%;
+
+    LITERAL
+    	PUIC_K_FIRST = 1,
+    	PUIC_K_IDENT = 1,
+    	PUIC_K_WILD_GROUP = 2,
+    	PUIC_K_OCTAL_GROUP = 3,
+    	PUIC_K_WILD_MEM= 5,
+    	PUIC_K_OCTAL_MEM = 6,
+    	PUIC_K_ALPHA_MEM = 7,
+    	PUIC_K_HEX_IDENT = 8,
+    	PUIC_K_LAST = 8;
+    $INIT_STATE (STATE_PUIC, KW_PUIC);
+
+!++
+! Initial state.  Handles plain alpha identifiers.
+!--
+    $STATE (START_PUIC,
+    	('[', INUIC),
+    	('<', INUICA),
+    	('%', HEXSTART),
+    	(TPA$_SYMBOL, TPA$_EXIT, CVT_ASCTOID_STORE,,, PUIC_K_IDENT),
+    	(TPA$_ANY, TPA$_FAIL));
+!++
+! States to handle
+!   	[*,*]
+!   	[g,m]
+!   	[alpha,m]
+!   	[alpha]
+! Note that [g,alpha] is not allowed.
+!--
+    $STATE (INUIC,
+    	('*', UICCOMMA1, CVT_ASCTOID_STORE,,, PUIC_K_WILD_GROUP),
+    	(TPA$_OCTAL, UICCOMMA1, CVT_ASCTOID_STORE,,, PUIC_K_OCTAL_GROUP),
+    	(TPA$_SYMBOL, UICCOMMA, CVT_ASCTOID_STORE,,, PUIC_K_IDENT),
+    	(TPA$_ANY, TPA$_FAIL));
+
+    $STATE (UICCOMMA,
+    	(',', UICMEM),
+    	(']', TPA$_EXIT),
+    	(TPA$_ANY, TPA$_FAIL));
+
+    $STATE (UICCOMMA1,
+    	(',', UICMEM1),
+    	(TPA$_ANY, TPA$_FAIL));
+
+    $STATE (UICMEM,
+    	('*', UICEND, CVT_ASCTOID_STORE,,, PUIC_K_WILD_MEM),
+    	(TPA$_OCTAL, UICEND, CVT_ASCTOID_STORE,,, PUIC_K_OCTAL_MEM),
+    	(TPA$_SYMBOL, UICEND, CVT_ASCTOID_STORE,,, PUIC_K_ALPHA_MEM),
+    	(TPA$_ANY, TPA$_FAIL));
+
+    $STATE (UICMEM1,
+    	('*', UICEND, CVT_ASCTOID_STORE,,, PUIC_K_WILD_MEM),
+    	(TPA$_OCTAL, UICEND, CVT_ASCTOID_STORE,,, PUIC_K_OCTAL_MEM),
+    	(TPA$_ANY, TPA$_FAIL));
+
+    $STATE (UICEND,
+    	(']', TPA$_EXIT),
+    	(TPA$_ANY, TPA$_FAIL));
+!++
+! States to handle
+!   	<*,*>
+!   	<g,m>
+!   	<alpha,m>
+!   	<alpha>
+! Note that <g,alpha> is not allowed, nor is <blah] or [blah>
+!--
+
+    $STATE (INUICA,
+    	('*', UICCOMMA1A, CVT_ASCTOID_STORE,,, PUIC_K_WILD_GROUP),
+    	(TPA$_OCTAL, UICCOMMA1A, CVT_ASCTOID_STORE,,, PUIC_K_OCTAL_GROUP),
+    	(TPA$_SYMBOL, UICCOMMAA, CVT_ASCTOID_STORE,,, PUIC_K_IDENT),
+    	(TPA$_ANY, TPA$_FAIL));
+
+    $STATE (UICCOMMAA,
+    	(',', UICMEMA),
+    	('>', TPA$_EXIT),
+    	(TPA$_ANY, TPA$_FAIL));
+
+    $STATE (UICCOMMA1A,
+    	(',', UICMEM1A),
+    	(TPA$_ANY, TPA$_FAIL));
+
+    $STATE (UICMEMA,
+    	('*', UICENDA, CVT_ASCTOID_STORE,,, PUIC_K_WILD_MEM),
+    	(TPA$_OCTAL, UICENDA, CVT_ASCTOID_STORE,,, PUIC_K_OCTAL_MEM),
+    	(TPA$_SYMBOL, UICENDA, CVT_ASCTOID_STORE,,, PUIC_K_ALPHA_MEM),
+    	(TPA$_ANY, TPA$_FAIL));
+
+    $STATE (UICMEM1A,
+    	('*', UICENDA, CVT_ASCTOID_STORE,,, PUIC_K_WILD_MEM),
+    	(TPA$_OCTAL, UICENDA, CVT_ASCTOID_STORE,,, PUIC_K_OCTAL_MEM),
+    	(TPA$_ANY, TPA$_FAIL));
+
+    $STATE (UICENDA,
+    	('>', TPA$_EXIT),
+    	(TPA$_ANY, TPA$_FAIL));
+!++
+! States to handle
+!   	%Xhexval
+!--
+    $STATE (HEXSTART,
+    	('X', HEXNUM),
+    	(TPA$_ANY, TPA$_FAIL));
+
+    $STATE (HEXNUM,
+    	(TPA$_HEX, TPA$_EXIT, CVT_ASCTOID_STORE,,, PUIC_K_HEX_IDENT));
+
+
+!+
+!
+!   Tables for the privilege and operator name converesion routines.
+!
+! N.B.: The order of these names MUST correspond to the bits in
+!   	$PRVDEF!
+!-
+    TABLE (PRVNAME,
+    	    	'CMKRNL',  'CMEXEC',   'SYSNAM',  'GRPNAM',    'ALLSPOOL',
+    	    	'DETACH',  'DIAGNOSE', 'LOG_IO',  'GROUP',     'ACNT',
+    	    	'PRMCEB',  'PRMMBX',   'PSWAPM',  'ALTPRI',    'SETPRV',
+    	    	'TMPMBX',  'WORLD',    'MOUNT',   'OPER',      'EXQUOTA',
+    	    	'NETMBX',  'VOLPRO',   'PHY_IO',  'BUGCHK',    'PRMGBL',
+    	    	'SYSGBL',  'PFNMAP',   'SHMEM',   'SYSPRV',    'BYPASS',
+    	    	'SYSLCK',  'SHARE',    'UPGRADE', 'DOWNGRADE', 'GRPPRV',
+    	       	'READALL', '',         '',        'SECURITY');
+
+!+
+! N.B.: The order of these names MUST correspond to the bits in
+!   	$OPCDEF!
+!-
+    TABLE (OPCNAME,
+    	    	'CENTRAL',  'PRINTER', 'TAPES',   'DISKS',    'DEVICES',
+    	    	'CARDS',    'NETWORK', 'CLUSTER', 'SECURITY', 'REPLY',
+    	    	'SOFTWARE', '',        'OPER1',   'OPER2',    'OPER3',
+    	    	'OPER4',    'OPER5',   'OPER6',   'OPER7',    'OPER8',
+    	    	'OPER9',    'OPER10',  'OPER11',  'OPER12');
+
+    TABLE (DOW, 'MONDAY', 'TUESDAY', 'WEDNESDAY', 'THURSDAY', 'FRIDAY',
+    	    	'SATURDAY', 'SUNDAY');
+
+
+%SBTTL 'FORMAT_PRIVS'
+GLOBAL ROUTINE FORMAT_PRIVS (PRVVEC_A, STR_A) = 
+BEGIN
+!++
+! FUNCTIONAL DESCRIPTION:
+!
+!   Creates a comma-separated list of privilege names from a
+!   privilege vector.
+!
+! RETURNS:  	cond_value, longword (unsigned), write only, by value
+!
+! PROTOTYPE:
+!
+!   FORMAT_PRIVS prvvec, str
+!
+! IMPLICIT INPUTS:  None.
+!
+! IMPLICIT OUTPUTS: None.
+!
+! COMPLETION CODES:
+!
+!   SS$_NORMAL:	    	normal successful completion.
+!
+! SIDE EFFECTS:
+!
+!   None.
+!--
+    BIND
+    	PRVVEC	= .PRVVEC_A 	: BITVECTOR [],
+    	STR 	= .STR_A    	: BLOCK [,BYTE];
+
+    STR$COPY_DX (STR, %ASCID'');
+    INCR I FROM 0 TO PRVNAME_COUNT-1 DO
+    	IF .PRVVEC [.I] THEN
+    	BEGIN
+    	    IF .STR [DSC$W_LENGTH] GTR 0 THEN STR$APPEND (STR, %ASCID',');
+    	    STR$APPEND (STR, .PRVNAME [.I]);
+    	END;
+
+    SS$_NORMAL
+
+END; ! FORMAT_PRIVS
+
+%SBTTL 'FORMAT_OPCS'
+GLOBAL ROUTINE FORMAT_OPCS (OPCVEC_A, STR_A) = 
+BEGIN
+!++
+! FUNCTIONAL DESCRIPTION:
+!
+!   Creates a comma-separated list of operator class names from a
+!   operator class mask.
+!
+! RETURNS:  	cond_value, longword (unsigned), write only, by value
+!
+! PROTOTYPE:
+!
+!   FORMAT_OPCS opcvec, str
+!
+! IMPLICIT INPUTS:  None.
+!
+! IMPLICIT OUTPUTS: None.
+!
+! COMPLETION CODES:
+!
+!   SS$_NORMAL:	    	normal successful completion.
+!
+! SIDE EFFECTS:
+!
+!   None.
+!--
+    BIND
+    	OPCVEC	= .OPCVEC_A 	: BITVECTOR [],
+    	STR 	= .STR_A    	: BLOCK [,BYTE];
+
+    STR$COPY_DX (STR, %ASCID'');
+    INCR I FROM 0 TO OPCNAME_COUNT-1 DO
+    	IF .OPCVEC [.I] THEN
+    	BEGIN
+    	    IF .STR [DSC$W_LENGTH] GTR 0 THEN STR$APPEND (STR, %ASCID',');
+    	    STR$APPEND (STR, .OPCNAME [.I]);
+    	END;
+
+    SS$_NORMAL
+
+END; ! FORMAT_OPCS
+
+%SBTTL 'FORMAT_TIMES'
+GLOBAL ROUTINE FORMAT_TIMES (TIMES_A, STR_A) = 
+BEGIN
+!++
+! FUNCTIONAL DESCRIPTION:
+!
+!   Formats a day/hour matrix into appropriate syntax for /DURING qualifiers.
+!
+! RETURNS:  	cond_value, longword (unsigned), write only, by value
+!
+! PROTOTYPE:
+!
+!   FORMAT_TIMES  times, str
+!
+! IMPLICIT INPUTS:  None.
+!
+! IMPLICIT OUTPUTS: None.
+!
+! COMPLETION CODES:
+!
+!   SS$_NORMAL:	    	normal successful completion.
+!
+! SIDE EFFECTS:
+!
+!   None.
+!--
+    BIND
+    	TIMES	= .TIMES_A  	: BLOCK [7,LONG],
+    	STR 	= .STR_A    	: BLOCK [,BYTE];
+    LOCAL
+    	STR2	: BLOCK [DSC$K_S_BLN,BYTE],
+    	STR3	: BLOCK [DSC$K_S_BLN,BYTE],
+    	START,
+    	DID_ONE;
+
+    $INIT_DYNDESC (STR2);
+    $INIT_DYNDESC (STR3);
+
+    STR$COPY_DX (STR, %ASCID'');
+    INCR I FROM 0 TO 6 DO
+    BEGIN
+    	IF .TIMES [.I,0,24,0] NEQ 0 THEN
+    	BEGIN
+    	    DID_ONE = 0;
+    	    IF .STR [DSC$W_LENGTH] GTR 0 THEN STR$APPEND (STR, %ASCID',');
+    	    STR$APPEND (STR, .DOW [.I]);
+    	    STR$APPEND (STR, %ASCID':(');
+    	    START = -1;
+    	    INCR J FROM 0 TO 23 DO
+    	    BEGIN
+    	    	IF .TIMES [.I,.J,1,0] THEN
+    	    	BEGIN
+    	    	    IF .START LSS 0 THEN START = .J;
+    	    	END
+    	    	ELSE IF .START GEQ 0 THEN
+    	    	BEGIN
+    	    	    IF .START EQL .J-1 THEN
+    	    	    	LIB$SYS_FAO (%ASCID'!UL', 0, STR3, .START)
+    	    	    ELSE
+    	    	    	LIB$SYS_FAO (%ASCID'!UL-!UL', 0, STR3, .START, .J-1);
+    	    	    IF .DID_ONE THEN STR$APPEND (STR2, %ASCID',');
+    	    	    STR$APPEND (STR2, STR3);
+    	    	    DID_ONE = 1;
+    	    	    START = -1;
+    	    	END;
+    	    END;
+    	    IF .START GEQ 0 THEN
+    	    BEGIN
+    	    	IF .START EQL 23 THEN
+    	    	    STR$COPY_DX (STR3, %ASCID'23')
+    	    	ELSE
+    	    	    LIB$SYS_FAO (%ASCID'!UL-23', 0, STR3, .START);
+    	    	IF .DID_ONE THEN STR$APPEND (STR2, %ASCID',');
+    	    	STR$APPEND (STR2, STR3);
+    	    END;
+    	    STR$APPEND (STR, STR2);
+    	    STR$APPEND (STR, %ASCID')');
+    	    STR$FREE1_DX (STR2);
+    	END;
+    END;
+
+    STR$FREE1_DX (STR3);
+
+    SS$_NORMAL
+
+END; ! FORMAT_TIMES
+
+%SBTTL 'ASC_TO_PRV_OR'
+GLOBAL ROUTINE ASC_TO_PRV_OR (PRVSTR_A, PRVMSK_A) = 
+BEGIN
+!++
+! FUNCTIONAL DESCRIPTION:
+!
+!   Takes an ASCII privilege name, converts it to its privilege bit,
+!   and OR's it with a mask.
+!
+! RETURNS:  	cond_value, longword (unsigned), write only, by value
+!
+! PROTOTYPE:
+!
+!   ASC_TO_PRV_OR  prvstr, prvmsk
+!
+! IMPLICIT INPUTS:  None.
+!
+! IMPLICIT OUTPUTS: None.
+!
+! COMPLETION CODES:
+!
+!   SS$_NORMAL:	    	normal successful completion.
+!
+! SIDE EFFECTS:
+!
+!   None.
+!--
+    BIND
+    	PRVSTR	= .PRVSTR_A 	: BLOCK [,BYTE],
+    	PRVMSK	= .PRVMSK_A 	: BITVECTOR [];
+
+    LOCAL
+    	PRVBIT;
+
+    PRVBIT = (INCR I FROM 0 TO PRVNAME_COUNT DO
+    	    	BEGIN
+    	    	    BIND PRV = .PRVNAME [.I] : BLOCK [,BYTE];
+    	    	    IF .PRV [DSC$W_LENGTH] GTR 0 THEN
+    	    	    	IF STR$POSITION (PRV, PRVSTR) EQL 1 THEN EXITLOOP .I;
+    	    	END);
+
+    IF .PRVBIT GEQ 0 THEN PRVMSK [.PRVBIT] = 1;
+
+    SS$_NORMAL
+
+END; ! ASC_TO_PRV_OR
+
+%SBTTL 'ASC_TO_OPC_OR'
+GLOBAL ROUTINE ASC_TO_OPC_OR (OPCSTR_A, OPCMSK_A) = 
+BEGIN
+!++
+! FUNCTIONAL DESCRIPTION:
+!
+!   Takes an ASCII operator class name, converts it to its OPC bit,
+!   and OR's it with a mask.
+!
+! RETURNS:  	cond_value, longword (unsigned), write only, by value
+!
+! PROTOTYPE:
+!
+!   ASC_TO_OPC_OR  opcstr, opcmsk
+!
+! IMPLICIT INPUTS:  None.
+!
+! IMPLICIT OUTPUTS: None.
+!
+! COMPLETION CODES:
+!
+!   SS$_NORMAL:	    	normal successful completion.
+!
+! SIDE EFFECTS:
+!
+!   None.
+!--
+    BIND
+    	OPCSTR	= .OPCSTR_A 	: BLOCK [,BYTE],
+    	OPCMSK	= .OPCMSK_A 	: BITVECTOR [];
+
+    LOCAL
+    	OPCBIT;
+
+    OPCBIT = (INCR I FROM 0 TO OPCNAME_COUNT DO
+    	    	BEGIN
+    	    	    BIND OPC = .OPCNAME [.I] : BLOCK [,BYTE];
+    	    	    IF .OPC [DSC$W_LENGTH] GTR 0 THEN
+    	    	    	IF STR$POSITION (OPC, OPCSTR) EQL 1 THEN EXITLOOP .I;
+    	    	END);
+
+    IF .OPCBIT GEQ 0 THEN OPCMSK [.OPCBIT] = 1;
+
+    SS$_NORMAL
+
+END; ! ASC_TO_OPC_OR
+
+%SBTTL 'CVT_ASCTOID'
+GLOBAL ROUTINE CVT_ASCTOID (STR_A, IDVAL_A) =
+BEGIN
+!++
+! FUNCTIONAL DESCRIPTION:
+!
+!   This is the main callable routine.  It sets up the arguments
+!   then calls on LIB$TPARSE to do the dirty work.
+!
+! RETURNS:  	cond_value, longword (unsigned), write only, by value
+!
+! PROTOTYPE:
+!
+!   CVT_ASCTOID str, idval
+!
+! str:	 char_string, character string, read only, by descriptor
+! idval: uic_code, longword (unsigned), write only, by reference
+!
+! IMPLICIT INPUTS:  None.
+!
+! IMPLICIT OUTPUTS: None.
+!
+! COMPLETION CODES:
+!
+!   SS$_NORMAL:	    	normal successful completion.
+!
+! SIDE EFFECTS:
+!
+!   None.
+!--
+
+    BIND
+    	STR 	= .STR_A : BLOCK [DSC$K_S_BLN,BYTE],
+    	IDVAL	= .IDVAL_A;
+
+    LOCAL
+    	TPABLK : BLOCK [TPA_C_LENGTH,BYTE],
+    	STATUS,
+    	STRPTR,
+    	STRLEN : WORD,
+    	RESULT : ALIAS;
+
+    STATUS = LIB$ANALYZE_SDESC (STR, STRLEN, STRPTR);
+    IF NOT .STATUS THEN RETURN .STATUS;
+
+    CH$FILL (%CHAR (0), TPA_C_LENGTH, TPABLK);
+    TPABLK [TPA$L_COUNT] = TPA$K_COUNT0 + 1;
+    TPABLK [TPA$L_STRINGCNT] = .STRLEN;
+    TPABLK [TPA$L_STRINGPTR] = .STRPTR;
+    TPABLK [TPA_L_IDVALPTR] = RESULT;
+
+    RESULT = 0;
+    STATUS = LIB$TPARSE (TPABLK, STATE_PUIC, KW_PUIC);
+
+    IF .STATUS THEN IDVAL = .RESULT;
+
+    .STATUS
+
+END; ! CVT_ASCTOID
+
+%SBTTL 'CVT_ASCTOID_STORE'
+TPA_ROUTINE (CVT_ASCTOID_STORE, (FLAG, INPLEN, INP_A, TOKLEN, TOK_A, CHAR, NUMBER,
+    	    	USRARG, IDVAL_A))
+!++
+! FUNCTIONAL DESCRIPTION:
+!
+!   This routine is invoked through LIB$TPARSE to store an
+!   identifier value (or a part of an identifier value) into
+!   a result variable.  The result variable is an extra argument
+!   added to the end of the TPARSE argument block.
+!
+! RETURNS:  	cond_value, longword (unsigned), write only, by value
+!
+! PROTOTYPE:
+!
+!   CVT_ASCTOID_STORE flag, inplen, inp, toklen, tok, char, number, usrarg, idval
+!
+! The first eight arguments are the LIB$TPARSE argument block.
+!
+! idval:    uic_code, longword (unsigned), write only, by reference
+!
+! IMPLICIT INPUTS:  None.
+!
+! IMPLICIT OUTPUTS: None.
+!
+! COMPLETION CODES:
+!
+!   SS$_NORMAL:	    	normal successful completion.
+!
+! SIDE EFFECTS:
+!
+!   None.
+!--
+
+    BIND
+    	TOK 	    = .TOK_A : VECTOR [,BYTE],
+    	IDENTVAL    = .IDVAL_A;
+
+    LOCAL
+    	STATUS,
+    	STR : BLOCK [DSC$K_S_BLN,BYTE],
+    	IDB : REF BLOCK [UIC$S_UICDEF,BYTE];
+
+    $INIT_DYNDESC (STR);
+    IDB = IDENTVAL;
+
+    CASE .USRARG FROM PUIC_K_FIRST TO PUIC_K_LAST OF
+    SET
+    [PUIC_K_IDENT] :
+    	BEGIN
+    	    STR$GET1_DX (%REF (.TOKLEN), STR);
+    	    CH$MOVE (.TOKLEN, TOK, .STR [DSC$A_POINTER]);
+    	    STATUS = $ASCTOID (NAME=STR, ID=IDENTVAL);
+    	END;
+    [PUIC_K_HEX_IDENT] :
+    	BEGIN
+    	    IDENTVAL = .NUMBER;
+    	    STATUS = SS$_NORMAL;
+    	END;
+    [PUIC_K_WILD_GROUP] :
+    	BEGIN
+    	    IDB [UIC$V_GROUP] = UIC$K_WILD_GROUP;
+    	    STATUS = SS$_NORMAL;
+    	END;
+    [PUIC_K_OCTAL_GROUP] :
+    	BEGIN
+    	    IDB [UIC$V_GROUP] = .NUMBER;
+    	    STATUS = SS$_NORMAL;
+    	END;
+    [PUIC_K_WILD_MEM] :
+    	BEGIN
+    	    IDB [UIC$V_MEMBER] = UIC$K_WILD_MEMBER;
+    	    STATUS = SS$_NORMAL;
+    	END;
+    [PUIC_K_OCTAL_MEM] :
+    	BEGIN
+    	    IDB [UIC$V_MEMBER] = .NUMBER;
+    	    STATUS = SS$_NORMAL;
+    	END;
+    [PUIC_K_ALPHA_MEM] :
+    	BEGIN
+    	    LOCAL LIDB : BLOCK [UIC$S_UICDEF,BYTE];
+    	    STR$GET1_DX (%REF (.TOKLEN), STR);
+    	    CH$MOVE (.TOKLEN, TOK, .STR [DSC$A_POINTER]);
+    	    STATUS = $ASCTOID (NAME=STR, ID=LIDB);
+    	    IF .STATUS THEN
+    	    	IDB [UIC$V_MEMBER] = .LIDB [UIC$V_MEMBER];
+    	END;
+    [INRANGE,OUTRANGE] : STATUS = SS$_BADPARAM;
+    TES;
+
+    STR$FREE1_DX (STR);
+
+    .STATUS
+
+END;
+
+
+%SBTTL 'PARSE_CFGFILE'
+GLOBAL ROUTINE PARSE_CFGFILE (FSPEC_A, DEFSPEC_A, RESSPEC_A) = 
+BEGIN
+!++
+! FUNCTIONAL DESCRIPTION:
+!
+!   	tbs
+!
+! RETURNS:  	cond_value, longword (unsigned), write only, by value
+!
+! PROTOTYPE:
+!
+!   PARSE_CFGFILE fspec, [defspec], resspec
+!
+! fspec:    char_string, character string, read only, by descriptor
+! defspec:  char_string, character string, read only, by descriptor
+! resspec:  char_string, character string, write only, by descriptor
+!
+! IMPLICIT INPUTS:  None.
+!
+! IMPLICIT OUTPUTS: None.
+!
+! COMPLETION CODES:
+!
+!   SS$_NORMAL:	    	normal successful completion.
+!
+! SIDE EFFECTS:
+!
+!   None.
+!--
+
+    BIND
+    	FSPEC	= .FSPEC_A  	: BLOCK [DSC$K_S_BLN, BYTE],
+    	DEFSPEC = .DEFSPEC_A	: BLOCK [DSC$K_S_BLN, BYTE],
+    	RESSPEC = .RESSPEC_A	: BLOCK [DSC$K_S_BLN, BYTE];
+
+    LOCAL
+    	FAB : $FAB_DECL,
+    	NAM : $NAM_DECL,
+    	ESP : BLOCK [255, BYTE],
+    	RSPLEN : WORD,
+    	DFSLEN : WORD,
+    	DFSADDR,
+    	STATUS;
+
+    DFSADDR = DFSLEN = 0;
+    IF DEFSPEC NEQA 0 THEN
+    BEGIN
+    	DFSLEN = .DEFSPEC [DSC$W_LENGTH];
+    	DFSADDR = .DEFSPEC [DSC$A_POINTER];
+    END;
+
+    $FAB_INIT (FAB=FAB, FNS=.FSPEC [DSC$W_LENGTH],
+    	FNA=.FSPEC [DSC$A_POINTER],
+    	DNS=.DFSLEN, DNA=.DFSADDR,
+    	NAM=NAM);
+
+    $NAM_INIT (NAM=NAM, ESA=ESP, ESS=%ALLOCATION (ESP));
+
+    STATUS = $PARSE (FAB=FAB);
+
+    IF NOT .STATUS THEN RETURN .STATUS;
+
+     RSPLEN = .NAM [NAM$B_NODE] + .NAM [NAM$B_DEV] + .NAM [NAM$B_DIR] +
+    	    	.NAM [NAM$B_NAME] + .NAM [NAM$B_TYPE];
+
+    STATUS = STR$COPY_R (RESSPEC, RSPLEN, .NAM [NAM$L_NODE]);
+
+    .STATUS
+
+END; ! PARSE_CFGFILE
+
+END
+ELUDOM

@@ -1,0 +1,1350 @@
+<FRONT_MATTER>(WATCHER_DOC_1)
+<TITLE_PAGE>
+<TITLE>(Guide to Installing and Using WATCHER)
+<ABSTRACT>(<REFERENCE>(RELMONTH))
+<P>This manual describes the installation, configuration, and operation
+of WATCHER, an idle terminal monitor for VMS systems.
+<ENDABSTRACT>
+<REVISION_INFO>(This is a revised manual.)
+<REVISION_INFO>(Operating System and Version:\VAX/VMS V5.4 or later)
+<REVISION_INFO>(\OpenVMS Alpha V6.1 or later)
+<REVISION_INFO>(\OpenVMS Industry Standard 64 V8.2 or later)
+<REVISION_INFO>(Software Version:\<REFERENCE>(VER))
+<ENDTITLE_PAGE>()
+
+<COPYRIGHT_PAGE>
+<PRINT_DATE>(<REFERENCE>(PRTDATE))
+<COPYRIGHT_DATE>(<REFERENCE>(COPYYEAR)\Matthew Madison. All rights reserved.)
+<p>Redistribution and use in source and binary forms, with or without
+modification, are permitted provided that the following conditions
+are met:
+<list>(unnumbered)
+<le> Redistributions of source code must retain the above
+copyright notice, this list of conditions and the following
+disclaimer.
+<le>Redistributions in binary form must reproduce the above
+copyright notice, this list of conditions and the following
+disclaimer in the documentation and/or other materials provided
+with the distribution.
+<le>Neither the name of the copyright owner nor the names of any
+other contributors may be used to endorse or promote products
+derived from this software without specific prior written
+permission.
+<endlist>
+<p> THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS
+"AS IS" AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT
+LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR
+A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT
+OWNER OR CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL,
+SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT
+LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE,
+DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY
+THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
+(INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
+OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+<ENDCOPYRIGHT_PAGE>
+<CONTENTS_FILE>
+<preface>(\WATCHER_DOC_2)
+<P>One of the first programs a new VMS system manager usually needs is an
+<quote>(idle terminal monitor) (ITM).  That is, a program to monitor terminal
+activity and logout those users whose terminals remain inactive for an
+extended period of time.  An
+ITM helps ensure that system resources  are not wasted and helps reduce the
+possibility of intruders using unattended terminals as a means of
+entry into the system.
+<p>Unfortunately, an ITM can also be an annoyance to system users.  A simple
+ITM can victimize legitimate users who may need to remain logged in but
+idle while they are at work.  This can lead to clever users devising
+<quote>(hacks) to evade the ITM, defeating the purpose of using the ITM
+in the first place.
+<p>WATCHER has a high degree of flexibility, allowing system managers to
+decide how to accommodate users' needs while still addressing operational and
+security issues.  WATCHER is fully configurable, providing the following
+features:
+<list>(unnumbered)
+<le>You can tell WATCHER which terminals to watch, and on a per-terminal
+basis, what measurements (CPU use, process I/O count, terminal I/O count) to
+use as criteria for determining idleness, and how long a terminal should be
+idle before the user should be forced off.
+<le>Users can be excluded from interference by WATCHER based on any
+combination of username, UIC, a held identifier, privileges, terminal device
+and/or port name, time-of-day/day-of-week, and name of image being run.
+<le>You can override or modify the watch criteria and/or idle times for any
+user based on any combination of username, UIC, a held identifier, privileges,
+terminal device and/or port name, time-of-day/day-of-week, and name of
+image being run.
+<endlist>
+<p>Through the use of these features, the system manager should be able to
+configure WATCHER to handle most types of terminals and accommodate most users.
+<head1>(Intended Audience\WATCHER_DOC_3)
+<p>This manual is intended for the system manager or other person responsible
+for installing and configuring WATCHER.
+<head1>(Document Structure\WATCHER_DOC_4)
+<p>This document consists of two parts.  The first describes the installation
+and use of WATCHER.  The second describes all of the WATCHER Control
+Program (WCP) commands in detail.
+<head1>(Support for WATCHER\WATCHER_DOC_5)
+<p>There is no formal support for WATCHER.
+<ENDPREFACE>
+<ENDFRONT_MATTER>
+<PART>
+<CHAPTER>(Installing WATCHER\WATCHER_DOC_6)
+<P>
+To use WATCHER, you need the following files:
+<table>
+<table_setup>(2\25)
+<table_row>(WATCHER.COM\Command procedure that executes WATCHER)
+<table_row>(WATCHER.EXE\The main WATCHER image)
+<table_row>(WCP.EXE\The WATCHER Control Program)
+<table_row>(FORCE_EXIT.EXE\$FORCEX program for use in custom logout procedures)
+<table_row>(WCP_HELPLIB.HLB\Help library for WCP)
+<table_row>(DECW_STARTLOGIN.COM\Part of DECwindows support)
+<table_row>(WATCHER_CONFIG.WCFG\You create this file with WCP)
+<table_row>(WATCHER_STARTUP.COM\Sample startup command procedure)
+<table_row>(WATCHER_SHUTDOWN.COM\Sample shutdown command procedure)
+<table_row>(SAMPLE_CONFIG.WCP\Sample configuration commands)
+<table_row>(WATCHER_LOGOUT.TEMPLATE\Template for custom logout procedures)
+<endtable>
+<p>The package comes with the object code files and libraries and
+a command procedure called LINK.COM, for creating the two images.
+<p>It is easiest to simply place all of the files in the
+distribution in one directory, run LINK.COM to create the images,
+then edit WATCHER_STARTUP.COM and the sample configuration commands
+in SAMPLE_CONFIG.WCP as needed for your system.  Then all you need to
+do is to run WCP, execute the WCP command file you created from the sample,
+which in turn creates a WATCHER_CONFIG.WCFG file, then execute
+WATCHER_STARTUP.COM to start the Watcher process.
+<head1>(Required Logical Names\WATCHER_DOC_7)
+<p>The three system-wide logical names WATCHER requires are:
+<table>
+<table_setup>(2\25)
+<table_row>(WATCHER_DIR\Should point to location of images and command
+procedures)
+<table_row>(WATCHER_CONFIG\Configuration file to be used)
+<table_row>(WATCHER_TRACE\Trace file; use NL: if debug disabled)
+<endtable>
+<p>They should all be defined in executive mode.
+<head2>(Logical Name for Help Library\WATCHER_DOC_8)
+<p>The help library for WCP may be placed in SYS$HELP, or, if you define the
+logical name WCP_HELPLIB to be the full path name of the file, anywhere else
+on the system.
+The sample WATCHER_STARTUP.COM includes the necessary DEFINE
+command to do this for you.
+<head1>(Privileges Required\WATCHER_DOC_9)
+<p>The account that is used for the WATCHER process requires the following
+privileges:
+<table>
+<table_setup>(2\15)
+<table_row>(CMKRNL\Required for DECwindows support and disconnects)
+<table_row>(PRMMBX\For defining the command mailbox)
+<table_row>(PSWAPM\Required for disconnects)
+<table_row>(SHARE\For sending warning messages to other users' terminals)
+<table_row>(SYSNAM\For defining the command mailbox)
+<table_row>(SYSPRV\(optional) to ensure access to appropriate files)
+<table_row>(WORLD\For getting information about and killing processes)
+<endtable>
+<p>SYSPRV is not needed if you make sure that WATCHER has enough access to read
+its configuration files and write its log and
+trace files (if used). Both CMKRNL and SYSPRV are required for DECwindows
+support.  CMKRNL and PSWAPM are required to perform virtual terminal
+disconnections.
+<head1>(Other Requirements\WATCHER_DOC_10)
+<p>The RUN command in WATCHER_STARTUP.COM should provide the WATCHER process
+with sufficient quotas to operate on most systems.  CPU and memory requirements
+will vary depending on the number of rules in the WATCHER configuration,
+peak number of interactive users, and peak number of watched users.  You 
+may wish to refer to the following table in computing expected memory
+resources needed by the WATCHER process:
+<table>
+<table_setup>(2\40)
+<table_row>(Memory required per WATCH rule\206 bytes)
+<table_row>(Memory required per EXCLUDE or OVERRIDE rule\507 bytes)
+<table_row>(Memory required per interactive process\465 bytes)
+<table_row>(Memory required per watched process\531 bytes)
+<table_row>(Size of WATCHER code (approximate)\18K bytes)
+<endtable>
+<p>
+DECwindows support also
+requires additional overhead for access to the job logical name tables
+of all interactive and detached processes on the system.
+<chapter>(Configuring WATCHER\WATCHER_DOC_11)
+<p>The WATCHER Control Program (WCP) is used to create WATCHER configurations.
+WCP is designed to be executed as a VMS foreign command.  To set up the
+foreign command, define the symbol
+<interactive>
+<s>($ )<U>(WCP :== $WATCHER_DIR:WCP)
+<endinteractive>
+<p>Once the symbol is set up, you can invoke WCP with the command:
+<interactive>
+<s>($ )<U>(WCP)
+<endinteractive>
+<p>WCP will automatically load the contents of your defined WATCHER_CONFIG
+file, if it exists.
+<head1>(Setting up WATCH Rules\WATCHER_DOC_12)
+<p>The WATCH command sets up rules that determine which terminals get watched,
+how to determine whether the terminals are active, and how long terminals
+must be inactive before a user can be forced off. For example:
+<interactive>
+<s>(WCP> )<U>(WATCH *$RT*/MEASURE=PROCESS_IO/LOGOUT=00:15:00)
+<endinteractive>
+<p>This command sets up a rule for watching all DECnet remote logins,
+using changes in total process I/O (buffered plus direct) to determine
+process activity, and causing logouts to occur after 15 minutes of inactivity.
+<note>You must have at least one WATCH command in your configuration.
+<endnote>
+<head2>(Identifying Terminals\WATCHER_DOC_13)
+<p>WATCH commands take any wildcard pattern.  All terminal device names
+that match the specified pattern are watched.  The device names used by
+WATCHER are the physical device names of terminals; if the system is
+part of a VMScluster, SCS node name is prefixed to the device name, as
+is normally done by VMS with cluster-accessible devices.
+<p>If the terminal device driver supports remote port identification, as
+does the LTDRIVER for LAT terminals, the remote port information can
+also be used as a match criterion by using the /ACCPORNAM qualifier.
+The port name can be specified as a wildcard pattern.
+For example:
+<interactive>
+<s>(WCP> )<u>(WATCH *$LT*/ACCPORNAM="TRMSRV/*")
+<endinteractive>
+<p>This command would cause the terminals attached to terminal server
+TRMSRV to be watched.
+<head2>(WATCH Criteria\WATCHER_DOC_14)
+<p>WATCHER gives you the choice of using one or more of the following
+measurements as criteria for judging whether a terminal or user is active:
+<table>
+<table_setup>(2\20)
+<table_row>(TERMINAL_IO\the I/O operation count on the terminal device)
+<table_row>(CPU\The total CPU time used by the process owning the terminal
+plus all of its subprocesses, in centiseconds)
+<table_row>(PROCESS_IO\the sum of the buffered and direct I/O counts of
+the process owning the terminal plus all of its subprocesses)
+<endtable>
+<p>The TERMINAL_IO measurement is useful for conventional terminals but
+cannot be used for workstations (running either VWS or DECwindows) due
+to the nature of workstation activity.  PROCESS_IO is recommended for
+use on workstation terminal devices.
+<p>For any of these measurements you can specify a minimum threshold
+value.  When WATCHER performs a comparison, the difference between
+the current measured value and the last measured value must be greater than
+the specified threshold to be counted as activity.  The default threshold
+value is zero, so that any difference at all counts as activity.
+<p>
+Several samples of WATCH commands with different criteria and threshold
+values are provided in SAMPLE_CONFIG.WCP.
+<head2>(Terminal Groupings\WATCHER_DOC_15)
+<p>You can group WATCH rules together by using the /GROUP qualifier.
+When WATCHER applies its rules for determining terminal activity,
+activity on one terminal in the group counts as activity for all the
+terminals in the group.  The main use for this feature is with multi-windowed
+terminals and workstations running VWS (DECwindows workstations are
+handled in this manner automatically).  For example, the following
+rules handle all the workstation terminal types on a standalone VWS workstation:
+<interactive>
+<s>(WCP> )<U>(WATCH WTA*/GROUP=VWS   ! normal VT200-series windows)
+<s>(WCP> )<U>(WATCH TKA*/GROUP=VWS   ! Tek 4010 emulation windows)
+<s>(WCP> )<u>(WATCH TJA*/GROUP=VWS   ! Tek 4125 emulation windows)
+<endinteractive>
+<p>The user can then create any number of  any type of terminal window, and
+as long as one of them is active, they will all remain logged in.
+<head1>(Exclusions and Overrides\WATCHER_DOC_16)
+<p>WATCHER's behaviour towards a terminal or user can be modified through
+the definition of exclusion and override rules.  Exclusions and overrides
+can be based on any combination of username, terminal/port name, UIC,
+image being run,
+privileges, a held identifier, and time of day.  Exclusion rules prevent
+WATCHER from taking any action towards a user, while override rules
+merely modify how the terminal is watched (i.e., the activity criteria and
+inactivity periods).  For example (taken from a VMScluster system):
+<interactive>
+<s>(WCP> )<U>(EXCLUDE SYSTEM/TERMINAL=*$OPA0:)
+<S>(WCP> )<U>(OVERRIDE JONES/TERMINAL=NODE1$TXA3:/DURING=(PRIMARY:8-16)-)
+<S>(_WCP> )<U>(          /LOGOUT=02:00:00)
+<ENDINTERACTIVE>
+<P>The first command prevents WATCHER from taking any action against
+the SYSTEM account while it is logged into the system console.  The second
+command extends the logout inactivity period to two hours for user JONES
+weekdays from 8 am to 4:59 pm, while JONES is logged into the terminal
+in her office, which is on port TXA3 on system NODE1.
+<head1>(Saving Configurations\WATCHER_DOC_17)
+<p>Once you have established the rules you need for your configuration,
+you should create the configuration file with the SAVE command:
+<interactive>
+<s>(WCP> )<U>(SAVE WATCHER_CONFIG)
+<endinteractive>
+<p>If WATCHER is currently running, you can have the new configuration take
+effect immediately with the RESET command, which will cause the WATCHER
+process to reload its configuration information from the file.
+<head2>(VMScluster Environments\WATCHER_DOC_18)
+<p>For mainly homogeneous VMScluster environments, you should be able to
+use one configuration file for all nodes in the cluster.  If you have a
+mix of nodes, however, it
+may be easier to create multiple configuration files and define the
+WATCHER_CONFIG logical name differently depending on the system.
+<head2>(Editing Configurations\WATCHER_DOC_19)
+<p>The WATCH, EXCLUDE, and OVERRIDE commands all have a /DELETE to allow
+you to remove rules from the database, and you can add rules as well.
+However, you cannot control the order of the new rules (order is important
+because WATCHER searches the rule lists in the order you enter them until
+one matches).  To assist in making complex changes to the configuration,
+the SHOW command has a /COMMAND qualifier that causes the configuration
+information to be displayed as commands you would enter to build
+the configuration:
+<interactive>
+<s>(WCP> )<U>(SHOW/COMMAND/OUTPUT=CONFIG.WCP ALL)
+<ENDINTERACTIVE>
+<P>Once you dump the commands to the command file, you can edit the command
+file as needed and create a new configuration with the commands:
+<interactive>
+<s>($ )<u>(WCP/NOFILE)
+<S>(WCP> )<U>(@CONFIG)
+<s>(WCP> )<u>(SAVE WATCHER_CONFIG)
+<endinteractive>
+<p>Instead of editing the configuration, it may be easier just to maintain
+a WCP command file with the necessary commands in it and build a new
+configuration each time you need to make a change.
+<head1>(DECwindows Support\dwses)
+<p>The VMS DECwindows implementation makes it difficult for a WATCHER-type
+program to properly identify, warn, and logout DECwindows sessions.  However,
+WATCHER does provide limited support for watching DECwindows sessions,
+enabled with the following commands:
+<interactive>
+<s>(WCP> )<U>(SET DECWINDOWS)
+<S>(WCP> )<U>(WATCH *WSA*/MEASURE=PROCESS_IO/NOWARNING)
+<ENDINTERACTIVE>
+<p>Note that you cannot use TERMINAL_IO as a measurement when watching
+DECwindows sessions, nor can WATCHER give warnings to idle DECwindows
+sessions.
+<p>WATCHER identifies DECwindows sessions by searching the job logical
+name table for each interactive process for the logical name DECW$DISPLAY,
+defined in executive mode.  Each interactive job related to a single
+DECwindows session will have the same value for DECW$DISPLAY.  WATCHER
+immediately changes the terminal device name it uses to the WSA device
+name (even for DECterm sessions) and also sets the group name to the
+WSA device name.  In this way, activity in any of the DECwindows jobs
+will be counted as activity for all jobs related to that session.
+<p>The DECwindows window manager and DECterm controller processes are
+detached processes that are also needed by WATCHER (when forcing off
+a DECwindows session).  To identify these processes, WATCHER searches
+for detached processes with DECW$DISPLAY defined in user mode.  WATCHER
+tracks these processes, but does not use them in activity determination
+(it calls them <quote>(fake) processes in debug/trace logs).
+<p>When WATCHER identifies a DECwindows session to be forced off, it
+looks for all processes (including the detached processes, which
+are important) with a matching WSA device name and forces them off.
+This should destroy all the windows on the workstation and return it
+to a blank, background screen.
+It then creates a detached process that executes the DECW_STARTLOGIN
+command procedure (which must be
+located in WATCHER_DIR:), which, after waiting
+a few seconds for other activity to die down, restarts the login
+process on the affected WSA device.
+<p>WATCHER cannot be used to watch DECwindows jobs that are started
+on remote systems, with the local workstation being used only as a
+display.  There must be at least some jobs running on the workstation
+with some activity to prevent WATCHER from logging out the DECwindows
+session.
+<p>This technique should be effective for VMS DECwindows V2
+and V3 (also known as DECwindows/Motif V1.0), and should
+even work with X terminals.
+It may not work with future DECwindows implementations.
+<CHAPTER>(Customized Logout Handling\custom_logouts)
+<P>This chapter describes the custom logout procedure hook
+available in WATCHER.
+<HEAD1>(Enabling Custom Logout Processing\custom_enable)
+<P>By default, WATCHER calls on the VMS system service $FORCEX to
+cause a forced image exit, and $DELPRC to delete a process.  If your
+site runs applications that require any special cleanup processing
+before an image exit or a logout occurs, you can create a custom
+logout procedure called WATCHER_LOGOUT.COM in the WATCHER_DIR:
+directory.  When this command procedure is present, WATCHER will spawn
+a subprocess to execute the procedure in place of calls to $FORCEX
+and $DELPRC.  A template command procedure, WATCHER_LOGOUT.TEMPLATE,
+is provided with WATCHER; edit this template and save the result as
+WATCHER_DIR:WATCHER_LOGOUT.COM to have your customized logout processing
+take effect.
+<P>Note that WATCHER does not call on this command procedure for
+disconnect processing (when using WATCH/DISCONNECT).
+<P>You must stop the WATCHER process and restart it when you create
+the WATCHER_LOGOUT.COM procedure.  You do not need to restart WATCHER
+if the command procedure already exists and you are simply editing it.
+<HEAD1>(The FORCE_EXIT Program\force_exit_prog)
+<P>VMS does not provide a way to force an image exit in another process
+directly from DCL.  The WATCHER kit comes with a program, FORCE_EXIT,
+that can be used from a custom logout procedure to do this for you.
+See the template procedure for more information.
+
+<Chapter>(Troubleshooting WATCHER\WATCHER_DOC_20)
+<p>If WATCHER is not behaving as expected, there may be a problem with
+your WATCHER configuration.
+There is debug/trace code built into WATCHER to allow you to monitor
+five categories of activities: the mainline WATCHER code, the exclusion-checking
+code, the override-checking code, measurement checks, and process information
+collection.
+Through the use of the SET DEBUG
+command, you can turn on tracing for  any or all of these debugging
+categories.
+<p>If WATCHER is already running, the best way to set up a test configuration
+is with the following command sequence:
+<interactive>
+<S>($ )<U>(SET PROCESS/PRIVILEGE=(SYSNAM,SYSPRV))
+<s>($ )<U>(WCP)
+<S>(WCP> )<U>(SET DEBUG=n)
+<S>(WCP> )<U>(SET NOACTION)
+<S>(WCP> )<U>(SAVE WATCHER_DIR:TEST_CONFIG)
+<S>(WCP> )<U>(EXIT)
+<S>($ )<U>(DEFINE/SYSTEM/EXEC WATCHER_CONFIG WATCHER_DIR:TEST_CONFIG)
+<S>($ )<U>(DEFINE/SYSTEM/EXEC WATCHER_TRACE  trace-file-spec)
+<S>($ )<U>(WCP RESET)
+<endinteractive>
+<p>The debug level <emphasis>(n) is described in the SET DEBUG command
+description, but usually will be 1 (just mainline) or 31 (full).  You can
+direct the trace information to any file accessible to WATCHER, or to
+an unowned terminal.
+<p>The SET NOACTION command will prevent WATCHER from actually logging
+anyone out or sending warning messages to terminals.
+<p>Subsequent WCP RESET commands will cause the trace file to be closed
+and a new version created, so you can easily view past trace information.
+To go back to <quote>(production) mode, just redefine WATCHER_CONFIG
+back to the name of the real configuration file, define WATCHER_TRACE
+to be NL:, and issue another WCP RESET command.
+<head1>(Forcing Wakeups\WATCHER_DOC_21)
+<p>To assist in debugging, you may want to have WATCHER wake up more
+often than normal.  You can do this by setting a shorter wakeup interval
+in the test configuration, or you can force a wakeup to occur by
+writing to the WATCHER control mailbox.  From a suitably  privileged
+account (SYSPRV), you can use the commands:
+<interactive>
+<s>($ )<U>(OPEN/WRITE WMBOX WATCHER_MBOX:)
+<S>($ )<U>(WRITE WMBOX "")
+<S>($ )<U>(CLOSE WMBOX)
+<ENDINTERACTIVE>
+<P>Each WRITE command will trigger a wakeup, and WATCHER will
+go through its processing sequence.
+<part>
+<part_page>
+<title>(Part II\Command Descriptions)
+<endpart_page>(RENUMBER)
+<COMMAND_SECTION>(Command Descriptions\CMD)
+<SET_TEMPLATE_COMMAND>(COMMAND\DOUBLERUNNINGHEADS)
+
+<COMMAND>(WCP\\WATCHER_DOC_22)
+<x>(WATCHER Control Program)
+<OVERVIEW>
+<P>Executes the WATCHER Control Program.
+<ENDOVERVIEW>
+
+<FORMAT>
+<FCMD>(WCP)
+<FPARMS>([command])
+<QUAL_LIST>
+<QPAIR>(/FILE=file-spec\See description.)
+<ENDQUAL_LIST>
+<ENDFORMAT>
+
+<PARAMDEFLIST>
+<PARAMITEM>([command])
+<PARAMDEF>
+Any WCP command except the input redirection operator (@).  The specified
+command is executed and control is returned to DCL immediately thereafter.
+<ENDPARAMDEFLIST>
+
+<DESCRIPTION>
+WCP is intended to be used as a DCL <quote>(foreign) command.  To
+use it as a foreign command, you must define a symbol as follows:
+<interactive>
+<s>($ )<u>(WCP :== $WATCHER_EXE:WCP)
+<endinteractive>
+<P>Defining the symbol in this way allows you to use the /FILE qualifier
+and specify <quote>(one-shot) commands on the command line.
+<ENDDESCRIPTION>
+
+<QUALDEFLIST>
+<QUALITEM>(/[NO]FILE=file-spec)
+<QUALDEF>
+Loads the specified WATCHER configuration file for editing.  If not specified,
+the configuration file pointed to by the logical name WATCHER_CONFIG is loaded.
+The default file type is WCFG.  If /NOFILE is specified, no configuration
+file is loaded.
+<ENDQUALDEFLIST>
+
+<COMMAND>(@ (Redirect Command Input)\\WATCHER_DOC_23)
+<x>(WCP commands<xs>@)
+<OVERVIEW>
+Executes WCP commands read from a file.
+<ENDOVERVIEW>
+
+<FORMAT>
+<FCMD>(@)
+<FPARMS>(file-spec)
+<ENDFORMAT>
+
+<PARAMDEFLIST>
+<PARAMITEM>(file-spec)
+<PARAMDEF>
+Name of the file containing WCP commands.  If omitted, the default file
+type is WCP.
+<ENDPARAMDEFLIST>
+<DESCRIPTION>
+Use this command to have WCP take further command input from the specified
+file.  There is no built-in limit on the number of levels of nesting of
+command files, so be careful when using input redirection from within
+a command file.  Commands read from command files are not displayed unless you
+SET VERIFY.
+<P>Command redirection can only be used at the WCP command prompt, not as a
+<quote>(one-shot) WCP command.  To have a file be used for input for an
+entire WCP session, use the following sequence of DCL commands.
+<interactive>
+<s>($ )<u>(DEFINE/USER SYS$INPUT file-spec)
+<s>($ )<u>(WCP)
+<endinteractive>
+<ENDDESCRIPTION>
+
+<COMMAND>(EXCLUDE\\WATCHER_DOC_24)
+
+<OVERVIEW>
+Defines an exclusion rule.
+<ENDOVERVIEW>
+
+<FORMAT>
+<FCMD>(EXCLUDE)
+<FPARMS>(username-pat)
+<ENDFORMAT>
+<QUAL_LIST>
+<QPAIR>(/ACCPORNAM=port-pat\/ACCPORNAM=*)
+<QPAIR>(/DELETE\)
+<QPAIR>(/DURING=daytim-list\(all the time))
+<QPAIR>(/HOLDING=identifier\(ignored))
+<QPAIR>(/IMAGE=fspec-pat\/IMAGE=*)
+<QPAIR>(/OPERATOR\)
+<QPAIR>(/PRIVILEGES=priv-list\(ignored))
+<QPAIR>(/TERMINAL=dev-pat\/TERMINAL=*)
+<QPAIR>(/UIC=uic\/UIC=[*,*])
+<ENDQUAL_LIST>
+<PARAMDEFLIST>
+<PARAMITEM>(username-pat)
+<PARAMDEF>
+A VMS username or pattern containing wildcards, identifying the user to
+be excluded.
+<ENDPARAMDEFLIST>
+
+<DESCRIPTION>
+This command is used to add or remove (with /DELETE) an exclusion rule
+to the WATCHER configuration.  When WATCHER is running, any process
+that matches all of the specified criteria is not watched.  Omitted
+criteria are not used or always match.
+<ENDDESCRIPTION>
+
+<QUALDEFLIST>
+<QUALITEM>(/ACCPORNAM=port-pat)
+<QUALDEF>
+Port name or pattern containing wildcards, identifying the terminal
+port (for terminal servers and other devices using port names) on which
+the user must be logged in to be excluded.  The default is any port.
+<QUALITEM>(/DELETE)
+<QUALDEF>
+Specifies that the rule should be deleted from the configuration.  All
+criteria must match exactly for the rule to be deleted.
+<QUALITEM>(/DURING=daytim-list)
+<QUALDEF>
+Specifies a list of days and times during which the user is to be excluded
+from watching. The day/time specifications are of the form
+<syntax>
+day:(hour-range[,...])
+<endsyntax>
+<p>where <emphasis>(day) is a day of the week or the word PRIMARY or SECONDARY,
+identifying the primary and secondary days set with SET DAYS, and 
+<emphasis>(hour-range) is either a single hour number (0 through 23) or
+two hour numbers separated by a hyphen.  Multiple hour ranges may be specified
+per day.
+<QUALITEM>(/HOLDING=identifier)
+<QUALDEF>
+Specifies that the user should be excluded if holding the specified identifier.
+The identifier is converted to binary format before being stored in the
+configuration, so you must create the configuration file on the target
+system, or on a node with the same RIGHTSLIST database as the target system,
+to prevent misinterpretation of the identifier.
+<p>Note that if you do not use /HOLDING on any EXCLUDE or OVERRIDE command,
+the rights identifier information is not collected by WATCHER, resulting in
+some savings in processing time.
+<QUALITEM>(/IMAGE=fspec-pat)
+<QUALDEF>
+Specifies that the user should be excluded if running an executable image
+whose name (as returned by the JPI$_IMAGNAME item from $GETJPI) matches
+the specified wildcard pattern.  For a job with subprocesses, the image
+name that WATCHER uses for matching against the wildcard pattern is the
+image currently being run by the master process in the job, or, if the
+master process is not running an image, an image being run by one of the
+subprocesses (randomly selected if there are two or more such subuprocesses).
+<QUALITEM>(/OPERATOR)
+<QUALDEF>
+Specifies that the process should be excluded if the terminal is enabled
+as an OPCOM operator console.
+<QUALITEM>(/PRIVILEGES=priv-list)
+<QUALDEF>
+Specifies that the user is to be excluded only when holding the specified
+privilege or privileges.  If omitted, privileges are not used as a criterion.
+<QUALITEM>(/TERMINAL=dev-pat)
+<QUALDEF>
+Specifies a terminal device name or pattern containing wildcards.  The user
+must be logged into a matching terminal to be excluded.
+<QUALITEM>(/UIC=uic)
+<QUALDEF>
+Specifies a UIC or UIC pattern.  A process is excluded only when owned by
+a matching UIC.  You may use an asterisk for the member part of the UIC
+to have all UIC's in a group match.  If omitted, any UIC will match.
+<ENDQUALDEFLIST>
+
+<COMMAND>(EXIT\\WATCHER_DOC_25)
+
+<OVERVIEW>
+Ends a WCP session.
+<ENDOVERVIEW>
+
+<FORMAT>
+<FCMD>(EXIT)
+<FPARMS>()
+<ENDFORMAT>
+
+<DESCRIPTION>
+Ends the current WCP session and returns control to DCL.  If you have
+modified the configuration, EXIT will ask for a file name for saving
+the configuration before exiting.
+<ENDDESCRIPTION>
+
+<COMMAND>(HELP\\WATCHER_DOC_26)
+
+<OVERVIEW>
+Displays help information.
+<ENDOVERVIEW>
+
+<FORMAT>
+<FCMD>(HELP)
+<FPARMS>([topic...])
+<ENDFORMAT>
+<PARAMDEFLIST>
+<PARAMITEM>(topic)
+<PARAMDEF>
+The name of a topic in the help library.  If omitted, a list of topics
+is displayed.
+<ENDPARAMDEFLIST>
+
+<DESCRIPTION>
+This command is pretty straightforward.
+<ENDDESCRIPTION>
+
+<COMMAND>(OVERRIDE\\WATCHER_DOC_27)
+
+<OVERVIEW>
+Defines an override rule.
+<ENDOVERVIEW>
+
+<FORMAT>
+<FCMD>(OVERRIDE)
+<FPARMS>(username-pat)
+<ENDFORMAT>
+<QUAL_LIST>
+<QPAIR>(/ACCPORNAM=port-pat\/ACCPORNAM=*)
+<QPAIR>(/DELETE\)
+<QPAIR>(/DURING=daytim-list\(all the time))
+<QPAIR>(/HOLDING=identifier\(ignored))
+<QPAIR>(/IMAGE=fspec-pat\/IMAGE=*)
+<QPAIR>(/OPERATOR\)
+<QPAIR>(/PRIVILEGES=priv-list\(ignored))
+<QPAIR>(/TERMINAL=dev-pat\/TERMINAL=*)
+<QPAIR>(/UIC=uic\/UIC=[*,*])
+<QPAIR>(/[NO]DISCONNECT[=deltatime])
+<QPAIR>(/[NO]FORCE_EXIT[=deltatime])
+<QPAIR>(/[NO]LOGOUT[=deltatime])
+<QPAIR>(/MEASURE=(measurement[,...]))
+<QPAIR>(/[NO]WARNING[=deltatime])
+<ENDQUAL_LIST>
+<PARAMDEFLIST>
+<PARAMITEM>(username-pat)
+<PARAMDEF>
+A VMS username or pattern containing wildcards, identifying the user for
+which the override is to take effect.
+<ENDPARAMDEFLIST>
+
+<DESCRIPTION>
+This command is used to add or remove (with /DELETE) an override rule
+to the WATCHER configuration.  When WATCHER is running, any process
+that matches all of the specified criteria will have the warning,
+logout, and measurement information, if specified, taken from the override
+rule instead of the WATCH rule.
+<ENDDESCRIPTION>
+
+<QUALDEFLIST>
+<QUALITEM>(/ACCPORNAM=port-pat)
+<QUALDEF>
+Port name or pattern containing wildcards, identifying the terminal
+port (for terminal servers and other devices using port names) on which
+the user must be logged in to have the override apply.  The default is any port.
+<QUALITEM>(/DELETE)
+<QUALDEF>
+Specifies that the rule should be deleted from the configuration.  All
+criteria must match exactly for the rule to be deleted.
+<QUALITEM>(/DURING=daytim-list)
+<QUALDEF>
+Specifies a list of days and times during which the override is to apply.
+The day/time specifications are of the form
+<syntax>
+day:(hour-range[,...])
+<endsyntax>
+<p>where <emphasis>(day) is a day of the week or the word PRIMARY or SECONDARY,
+identifying the primary and secondary days set with SET DAYS, and 
+<emphasis>(hour-range) is either a single hour number (0 through 23) or
+two hour numbers separated by a hyphen.  Multiple hour ranges may be specified
+per day.
+<QUALITEM>(/HOLDING=identifier)
+<QUALDEF>
+Specifies that the override should apply only if the user is holding the
+specified identifier.
+The identifier is converted to binary format before being stored in the
+configuration, so you must create the configuration file on the target
+system, or on a node with the same RIGHTSLIST database as the target system,
+to prevent misinterpretation of the identifier.
+<p>Note that if you do not use /HOLDING on any EXCLUDE or OVERRIDE command,
+the rights identifier information is not collected by WATCHER, resulting in
+some savings in processing time.
+<QUALITEM>(/IMAGE=fspec-pat)
+<QUALDEF>
+Specifies that the override should apply only if the user is running an
+executable image whose name (as returned by the JPI$_IMAGNAME item from
+$GETJPI) matches
+the specified wildcard pattern.  For a job with subprocesses, the image
+name that WATCHER uses for matching against the wildcard pattern is the
+image currently being run by the master process in the job, or, if the
+master process is not running an image, an image being run by one of the
+subprocesses (randomly selected if there are two or more such subuprocesses).
+<QUALITEM>(/OPERATOR)
+<QUALDEF>
+Specifies that the override should apply if the process's terminal is enabled
+as an OPCOM operator console.
+<QUALITEM>(/PRIVILEGES=priv-list)
+<QUALDEF>
+Specifies that the override should apply only when the user is holding the specified
+privilege or privileges.  If omitted, privileges are not used as a criterion.
+<QUALITEM>(/TERMINAL=dev-pat)
+<QUALDEF>
+Specifies a terminal device name or pattern containing wildcards.  The user
+must be logged into a matching terminal to have the override apply.
+<QUALITEM>(/UIC=uic)
+<QUALDEF>
+Specifies a UIC or UIC pattern.  The override applies only to processes owned by
+a matching UIC.  You may use an asterisk for the member part of the UIC
+to have all UIC's in a group match.  If omitted, any UIC will match.
+
+<QUALITEM>(/[NO]DISCONNECT[=deltatime])
+<QUALDEF>
+Specifies that the logout/disconnect information should be overridden,
+performing a virtual terminal disconnection instead of deleting the
+user process. The inactivity interval can be overridden by specifying a
+<emphasis>(deltatime), or logouts/disconnects can be prevented altogether
+by specifying /NODISCONNECT (although it is more efficient to use EXCLUDE
+for this).
+<QUALITEM>(/[NO]FORCE_EXIT[=deltatime])
+<QUALDEF>
+Specifies that the logout/disconnect information should be overridden,
+performing a forced image exit instead of deleting the process or
+disconnecting the terminal. Only user-mode images are forced; if the
+user is at DCL command level, the forced exit is skipped.
+The inactivity interval can be overridden by specifying a
+<emphasis>(deltatime), or exits/logouts/disconnects can be prevented altogether
+by specifying /NOFORCE_EXIT (although it is more efficient to use EXCLUDE
+for this).
+<QUALITEM>(/[NO]LOGOUT[=deltatime])
+<QUALDEF>
+Specifies that the logout/disconnect information should be overridden,
+performing a process deletion instead of a virtual terminal disconnection.
+The inactivity interval can be overridden by specifying a <emphasis>(deltatime),
+or logouts can be prevented by specifying /NOLOGOUT (although it is more
+efficient to use EXCLUDE for this).
+<qualitem>(/MEASURE=(measurement[,...]))
+<qualdef>
+Specifies that the activity measurements should be overridden.
+For <emphasis>(measurement), specify one of the following:
+<table>
+<table_setup>(2\25)
+<table_row>(CPU[:<emphasis>(threshold)]\CPU time (the sum of the CPU time
+used by the process and all its subprocesses, in centiseconds) should be used
+as a criterion.
+If <emphasis>(threshold) is specified, the difference in CPU time between
+passes must exceed the specified threshold for a process to be considered
+active.)
+<table_row>(PROCESS_IO[:<emphasis>(threshold)]\Process I/O (the sum of
+the buffered and direct I/O counts for the process and all its subprocesses)
+should be used as a criterion.
+If <emphasis>(threshold) is specified, the difference in I/O counts between
+passes must exceed the specified threshold for a process to be considered
+active.)
+<table_row>(TERMINAL_IO[:<emphasis>(threshold)]\Terminal I/O (the
+operation count on the terminal device) should be used as a criterion.
+If <emphasis>(threshold) is specified, the difference in I/O counts between
+passes must exceed the specified threshold for a process to be considered
+active.)
+<endtable>
+<p> Any combination of PROCESS_IO, CPU, and TERMINAL_IO is permitted.
+If omitted, <emphasis>(threshold) values default to zero.  Note that
+threshold values should be chosen as a function of the wakeup interval
+(defined with SET INTERVAL).
+<qualitem>(/[NO]WARNING[=deltatime])
+<qualdef>
+Specifies that the warning information should be overridden.  The warning
+inactivity interval can be overridden by specifying a <emphasis>(deltatime),
+or warnings can be prevented by specifying /NOWARNING.
+<ENDQUALDEFLIST>
+
+<COMMAND>(QUIT\\WATCHER_DOC_28)
+
+<OVERVIEW>
+Quits WCP without saving configuration changes.
+<ENDOVERVIEW>
+
+<FORMAT>
+<FCMD>(QUIT)
+<FPARMS>()
+<ENDFORMAT>
+
+<DESCRIPTION>
+If changes to the configuration have been made, you are asked for
+confirmation before quitting.
+<ENDDESCRIPTION>
+
+<COMMAND>(RESET\\WATCHER_DOC_29)
+
+<OVERVIEW>
+Sends a reset command to the WATCHER process.
+<ENDOVERVIEW>
+
+<FORMAT>
+<FCMD>(RESET)
+<FPARMS>( )
+<ENDFORMAT>
+
+<DESCRIPTION>
+This command sends a reset command to the WATCHER process, which causes
+WATCHER to flush all process and configuration information, close its log
+and trace files, and read in the configuration again.
+<P>OPER and SYSPRV privileges are required for this command.
+<ENDDESCRIPTION>
+
+<COMMAND>(SAVE\\WATCHER_DOC_30)
+
+<OVERVIEW>
+Saves a WATCHER configuration.
+<ENDOVERVIEW>
+
+<FORMAT>
+<FCMD>(SAVE)
+<FPARMS>([file-spec])
+<ENDFORMAT>
+<PARAMDEFLIST>
+<PARAMITEM>(file-spec)
+<PARAMDEF>
+Name of the file to which the configuration should be written.  If omitted,
+it defaults to the name of the file read in with the WCP/FILE qualifier
+(if any).  If specified, the default file type is WCFG and the default
+location is the current default directory.
+<ENDPARAMDEFLIST>
+
+<COMMAND>(SET ACTION\\Command_Set_Action)
+
+<OVERVIEW>
+Controls whether WATCHER performs warning and logout actions.
+<ENDOVERVIEW>
+
+<FORMAT>
+<FCMD>(SET [NO]ACTION)
+<FPARMS>( )
+<ENDFORMAT>
+
+<DESCRIPTION>
+To test out a WATCHER installation or configuration change, you may want to
+SET NOACTION to prevent WATCHER from actually notifying any terminals or
+logging any users out.  The SET NOACTION setting allows you to test your
+configuration safely, and use the DEBUG and trace facilities to see how
+WATCHER would have performed.
+<p>
+When you are through testing, return the setting back to the default, SET
+ACTION, to have WATCHER actually perform warnings, disconnections, logouts,
+etc.
+<ENDDESCRIPTION>
+
+<COMMAND>(SET BELL\\WATCHER_DOC_31)
+
+<OVERVIEW>
+Enables or disables the ringing of the terminal bell on warnings and
+logouts.
+<ENDOVERVIEW>
+
+<FORMAT>
+<FCMD>(SET [NO]BELL)
+<FPARMS>( )
+<ENDFORMAT>
+
+<DESCRIPTION>
+By default, the terminal bell is not rung when WATCHER displays a warning
+or logout message on a terminal.  SET BELL will cause WATCHER to send
+a BEL character with the message to cause the terminal bell to ring.
+<ENDDESCRIPTION>
+
+<COMMAND>(SET DAYS\\WATCHER_DOC_32)
+
+<OVERVIEW>
+Establishes the primary and secondary day settings for subsequent commands.
+<ENDOVERVIEW>
+
+<FORMAT>
+<FCMD>(SET DAYS)
+<FPARMS>()
+<ENDFORMAT>
+<QUAL_LIST>
+<QPAIR>(/PRIMARY=(day-list))
+<QPAIR>(/SECONDARY=(day-list))
+<ENDQUAL_LIST>
+
+<DESCRIPTION>
+This command is used to move one or more days from the primary day list
+to the  secondary day list or vice-versa.  These lists are used as shorthand
+by other commands when you specify PRIMARY or SECONDARY on a /DURING
+qualifier.
+<ENDDESCRIPTION>
+
+<COMMAND>(SET DEBUG\\WATCHER_DOC_33)
+
+<OVERVIEW>
+Enables or disables debug tracing and sets the level of debug information.
+<ENDOVERVIEW>
+
+<FORMAT>
+<FCMD>(SET [NO]DEBUG[=mask])
+<FPARMS>()
+<ENDFORMAT>
+
+<DESCRIPTION>
+SET DEBUG turns on debug tracing.  WATCHER will send debug output to
+the file or device identified by the WATCHER_TRACE logical name.  For
+<emphasis>(mask), specify a decimal number representing a bitmask
+indicating which kinds of debugging information you want logged.
+<table>
+<table_setup>(3\8\8)
+<table_heads>(Value\Bit no.\Description)
+<table_row>(<align_number>(##1)\<align_number>(##0)\main line code)
+<table_row>(<align_number>(##2)\<align_number>(##1)\exclusion checks)
+<table_row>(<align_number>(##4)\<align_number>(##2)\override checks)
+<table_row>(<align_number>(##8)\<align_number>(##3)\measurement checks)
+<table_row>(<align_number>(#16)\<align_number>(##4)\process info collection)
+<endtable>
+<p>The <emphasis>(mask) value can be any one of the above, or a sum of
+any of the above values.  Use SET NODEBUG to disable debug tracing.
+<ENDDESCRIPTION>
+
+<COMMAND>(SET DECWINDOWS\\WATCHER_DOC_34)
+
+<OVERVIEW>
+Enables or disables extra processing required for DECwindows support.
+<ENDOVERVIEW>
+
+<FORMAT>
+<FCMD>(SET [NO]DECWINDOWS)
+<FPARMS>( )
+<ENDFORMAT>
+
+<DESCRIPTION>
+Since the DECwindows support requires additional processing beyond that
+used for watching normal terminals, it is by default turned off.  You
+should only SET DECWINDOWS when you will be running WATCHER on a
+DECwindows workstation (or a system with DECwindows terminals).  You
+will also need to include a WATCH rule for WSA terminal devices to
+watch DECwindows sessions (as described in <reference>(dwses)).
+<ENDDESCRIPTION>
+
+<COMMAND>(SET EVENT_LOG\\WATCHER_DOC_35)
+<OVERVIEW>
+Establishes how normal WATCHER events are recorded.
+<endoverview>
+
+<format>
+<fcmd>(SET [NO]EVENT_LOG)
+<FPARMS>()
+<ENDFORMAT>
+<QUAL_LIST>
+<QPAIR>(/FILE=file-spec\)
+<QPAIR>(/OPERATOR=oper-list\)
+<ENDQUAL_LIST>
+
+<DESCRIPTION>
+This command specifies how normal WATCHER events (startup, shutdown, reset,
+and logout events) are recorded.  By default, WATCHER events are logged to
+the CENTRAL operator class.
+<ENDDESCRIPTION>
+
+<QUALDEFLIST>
+<QUALITEM>(/FILE=file-spec)
+<QUALDEF>Directs event logging to the specified file.
+<QUALITEM>(/OPERATOR=oper-list)
+<QUALDEF>Specifies a list of one or more operator classes to which WATCHER
+events should be logged.  If more than one operator class name is specified,
+the list should be comma-separated and surrounded by parentheses.
+<ENDQUALDEFLIST>
+
+<COMMAND>(SET INSWAP\\Command_Set_INSWAP)
+
+<OVERVIEW>
+Sets the $GETJPI NOINSWAP control flag used by WATCHER.
+<ENDOVERVIEW>
+
+<FORMAT>
+<FCMD>(SET [NO]INSWAP)
+<FPARMS>( )
+<ENDFORMAT>
+
+<DESCRIPTION>
+Under VAX/VMS V5.2 and later (and all versions of OpenVMS Alpha and
+OpenVMS Industry Standard 64), the
+$GETJPI system service supports a control flag that prevents it from
+taking any action that would result in the swapping in of a process
+that is currently swapped out.  SET NOINSWAP enables the use of this
+control flag in WATCHER, causing WATCHER to ignore any swapped-out
+processes.  The default setting is INSWAP.
+<p>
+Using SET NOINSWAP may result in inactive processes not being logged out by
+WATCHER, or in some cases may result in processes getting logged
+out prematurely, because activity of swapped-out processes cannot be
+determined when NOINSWAP is set.
+<ENDDESCRIPTION>
+
+<COMMAND>(SET INTERVAL\\WATCHER_DOC_36)
+
+<OVERVIEW>
+Sets the hibernation interval between processing passes.
+<ENDOVERVIEW>
+
+<FORMAT>
+<FCMD>(SET INTERVAL=delta-time)
+<FPARMS>()
+<ENDFORMAT>
+
+<DESCRIPTION>
+This command sets the length of time WATCHER hibernates between
+processing passes.  The default is 5 minutes.  The value you should use
+should be smaller than the warning and logout intervals for all terminals
+and smaller than the difference between the logout and warning intervals
+for any single terminal.  Too small a value, however, will cause WATCHER
+to waste CPU time.
+<ENDDESCRIPTION>
+
+<COMMAND>(SET MULTIWARN\\WATCHER_DOC_37)
+
+<OVERVIEW>
+Enables or disables multiple warnings.
+<ENDOVERVIEW>
+
+<FORMAT>
+<FCMD>(SET [NO]MULTIWARN)
+<FPARMS>( )
+<QUAL_LIST>
+<QPAIR>(/INTERVAL=delta-time\/INTERVAL="0 00:05:00")
+<ENDQUAL_LIST>
+<ENDFORMAT>
+
+<DESCRIPTION>
+By default, WATCHER displays only one warning on terminals, at the
+time specified on the /WARNING qualifier.  SET MULTIWARN enables multiple
+warnings; one at the /WARNING time and again every five minutes (or whatever
+interval you specify) until the /LOGOUT or
+/DISCONNECT time is reached.
+<p>This is a system-wide setting.
+<ENDDESCRIPTION>
+
+<QUALDEFLIST>
+<QUALITEM>(/INTERVAL=delta-time)
+<QUALDEF>
+Specifies the interval of time that should occur between warnings.  If
+omitted, defaults to five minutes.  This value should equal or exceed the
+wakeup interval value (specified by SET INTERVAL).  The actual interval
+between warnings may be longer than the specified time, since checks are
+made only at each processing pass (the interval between which is controlled
+by the wakeup interval value).
+<ENDQUALDEFLIST>
+
+<COMMAND>(SET VERIFY\\WATCHER_DOC_38)
+
+<OVERVIEW>
+Enables or disables echoing of commands in command files.
+<ENDOVERVIEW>
+
+<FORMAT>
+<FCMD>(SET [NO]VERIFY)
+<FPARMS>( )
+<ENDFORMAT>
+
+<DESCRIPTION>
+The SET VERIFY command turns on command verification, so that commands
+read from WCP command files are echoed to the terminal.  SET NOVERIFY
+turns off verification, which is the default.
+<ENDDESCRIPTION>
+
+<COMMAND>(SET WATCH_DEFAULT\\WATCHER_DOC_39)
+
+<OVERVIEW>
+Establishes defaults for subsequent WATCH commands.
+<ENDOVERVIEW>
+
+<FORMAT>
+<FCMD>(SET WATCH_DEFAULT)
+<FPARMS>( )
+<ENDFORMAT>
+<QUAL_LIST>
+<QPAIR>(/[NO]DISCONNECT[=deltatime])
+<QPAIR>(/[NO]FORCE_EXIT[=deltatime])
+<QPAIR>(/[NO]LOGOUT[=deltatime]\)
+<QPAIR>(/MEASURE=(measurement[,...])\)
+<QPAIR>(/[NO]WARNING[=deltatime]\)
+<ENDQUAL_LIST>
+
+<DESCRIPTION>
+The SET WATCH_DEFAULT command is used to set logout, warning, and
+measurement defaults for subsequent WATCH commands.
+<p>The defaults set by this command are saved between WCP sessions.
+<ENDDESCRIPTION>
+
+<qualdeflist>
+<QUALITEM>(/[NO]DISCONNECT[=deltatime])
+<QUALDEF>
+Sets the default for disconnects, to be used if not specified on subsequent
+WATCH commands. 
+/DISCONNECT, /FORCE_EXIT,  and /LOGOUT are mutually exclusive.
+<QUALITEM>(/[NO]FORCE_EXIT[=deltatime])
+<QUALDEF>
+Sets the default for forced image exits to be used on subsequent
+WATCH commands.
+/DISCONNECT, /FORCE_EXIT,  and /LOGOUT are mutually exclusive.
+<QUALITEM>(/[NO]LOGOUT[=deltatime])
+<QUALDEF>
+Sets the default for logouts, to be used if not specified on subsequent
+WATCH commands.
+/DISCONNECT, /FORCE_EXIT,  and /LOGOUT are mutually exclusive.
+<qualitem>(/MEASURE=(measurement[,...]))
+<qualdef>
+Sets the default measurements to be used for activity determination
+if not specified on subsequent WATCH commands.
+For <emphasis>(measurement), specify one of the following:
+<table>
+<table_setup>(2\25)
+<table_row>(CPU[:<emphasis>(threshold)]\CPU time (the sum of the CPU time
+used by the process and all its subprocesses, in centiseconds) should be used
+as a criterion.
+If <emphasis>(threshold) is specified, the difference in CPU time between
+passes must exceed the specified threshold for a process to be considered
+active.)
+<table_row>(PROCESS_IO[:<emphasis>(threshold)]\Process I/O (the sum of
+the buffered and direct I/O counts for the process and all its subprocesses)
+should be used as a criterion.
+If <emphasis>(threshold) is specified, the difference in I/O counts between
+passes must exceed the specified threshold for a process to be considered
+active.)
+<table_row>(TERMINAL_IO[:<emphasis>(threshold)]\Terminal I/O (the
+operation count on the terminal device) should be used as a criterion.
+If <emphasis>(threshold) is specified, the difference in I/O counts between
+passes must exceed the specified threshold for a process to be considered
+active.)
+<endtable>
+<p> Any combination of PROCESS_IO, CPU, and TERMINAL_IO is permitted.
+If omitted, <emphasis>(threshold) values default to zero.  Note that
+threshold values should be chosen as a function of the wakeup interval
+(defined with SET INTERVAL).
+
+<qualitem>(/[NO]WARNING[=deltatime])
+<qualdef>
+Sets the defaults for warnings, to be used if not specified on subsequent
+WATCH commands.
+<ENDQUALDEFLIST>
+
+<COMMAND>(SHOW\\WATCHER_DOC_40)
+
+<OVERVIEW>
+<P>Displays all or part of the current configuration.
+<ENDOVERVIEW>
+
+<FORMAT>
+<FCMD>(SHOW)
+<FPARMS>(<list>(stacked\braces)
+<LE>ACTION
+<LE>ALL
+<le>BELL
+<LE>DAYS
+<LE>DEBUG
+<LE>DEFAULTS
+<LE>EVENT_LOG
+<LE>EXCLUDE
+<LE>FILE
+<LE>GLOBALS
+<LE>INSWAP
+<LE>INTERVAL
+<LE>MULTIWARN
+<LE>OVERRIDE
+<LE>WATCH
+<endlist>)
+<QUAL_LIST>
+<QPAIR>(/[NO]COMMAND\/NOCOMMAND)
+<QPAIR>(/OUTPUT=file-spec\/OUTPUT=SYS$OUTPUT:)
+<ENDQUAL_LIST>
+<ENDFORMAT>
+
+<DESCRIPTION>
+The SHOW command displays information about the current configuration
+and the WCP default settings.
+<ENDDESCRIPTION>
+
+<QUALDEFLIST>
+<QUALITEM>(/[NO]COMMAND)
+<QUALDEF>
+The /COMMAND qualifier indicates that the display should be formatted as
+the commands that would be entered to create the specified records.
+Use /COMMAND with the /OUTPUT qualifier to create an MCP command file
+that can be altered with your favorite editor, then read back into MCP
+to create a new configuration.
+
+<QUALITEM>(/OUTPUT=file-spec)
+<QUALDEF>
+The /OUTPUT qualifier is used to direct the SHOW result to a file or other
+device.  By default, the result is displayed on the current output device,
+SYS$OUTPUT.
+<ENDQUALDEFLIST>
+
+<COMMAND>(SHUTDOWN\\WATCHER_DOC_41)
+
+<OVERVIEW>
+Sends a shutdown command to the WATCHER process.
+<ENDOVERVIEW>
+
+<FORMAT>
+<FCMD>(SHUTDOWN)
+<FPARMS>( )
+<ENDFORMAT>
+
+<DESCRIPTION>
+This command sends a shutdown command to the WATCHER process, which causes
+WATCHER to close its log files and exit.
+<P>OPER and SYSPRV privileges are required for this command.
+<ENDDESCRIPTION>
+
+<COMMAND>(WATCH\\WATCHER_DOC_42)
+
+<OVERVIEW>
+Defines a watch rule.
+<ENDOVERVIEW>
+
+<FORMAT>
+<FCMD>(WATCH)
+<FPARMS>(device-pat)
+<ENDFORMAT>
+<QUAL_LIST>
+<QPAIR>(/ACCPORNAM=port-pat\/ACCPORNAM=*)
+<QPAIR>(/DELETE\)
+<QPAIR>(/[NO]DISCONNECT[=deltatime])
+<QPAIR>(/[NO]FORCE_EXIT[=deltatime])
+<QPAIR>(/[NO]LOGOUT[=deltatime])
+<QPAIR>(/MEASURE=(measurement[,...]))
+<QPAIR>(/[NO]WARNING[=deltatime])
+<ENDQUAL_LIST>
+<PARAMDEFLIST>
+<PARAMITEM>(device-pat)
+<PARAMDEF>
+A terminal device name or pattern containing wildcards, to identify the
+terminal(s) to be watched.
+<ENDPARAMDEFLIST>
+
+<DESCRIPTION>
+This command is used to add or remove (with /DELETE) a watch rule
+to the WATCHER configuration.  When WATCHER is running, a process
+running on any terminal matching the specified criteria will be watched
+for inactivity, using the specified parameters.
+<ENDDESCRIPTION>
+
+<QUALDEFLIST>
+<QUALITEM>(/ACCPORNAM=port-pat)
+<QUALDEF>
+Port name or pattern containing wildcards, identifying the terminal
+port(s) (for terminal servers and other devices using port names) to
+be watched. The default is any port.
+<QUALITEM>(/DELETE)
+<QUALDEF>
+Specifies that the rule should be deleted from the configuration.  All
+criteria must match exactly for the rule to be deleted.
+<QUALITEM>(/[NO]DISCONNECT[=deltatime])
+<QUALDEF>
+For systems with virtual terminals enabled, this qualifier specifies
+whether the terminal should be disconnected from the system, and if so,
+how long the terminal should be inactive before the disconnection occurs.
+If virtual terminals are not enabled, or the terminal to be forced off
+is not connected through a virtual terminal, the process is logged out
+(the same effect as for the /LOGOUT qualifier).  If both this qualifier and
+/LOGOUT are omitted, the disconnect/logout default is taken from the current
+SET WATCH_DEFAULT setting.
+<p>The /DISCONNECT, /FORCE_EXIT, and /LOGOUT qualifiers are mutually exclusive.
+
+<NOTE>
+    The terminal-disconnection code used by WATCHER runs in kernel mode,
+at elevated IPL,
+and hence may result in a system crash if the VMS terminal UCB extensions
+or terminal class driver changes.  As with all code that uses undocumented
+VMS internals, exercise
+caution when using /DISCONNECT for the first time and when you upgrade
+to a new version of VMS.
+<P>The disconnect code is the only part of WATCHER that uses kernel mode.
+<ENDNOTE>
+
+<QUALITEM>(/[NO]FORCE_EXIT[=deltatime])
+<QUALDEF>
+Specifies that any user-mode image currently running at the terminal
+should be forced to exit, without actually logging the user off.
+<p>The /DISCONNECT, /FORCE_EXIT, and /LOGOUT qualifiers are mutually exclusive.
+<QUALITEM>(/[NO]LOGOUT[=deltatime])
+<QUALDEF>
+Specifies whether the terminal should be logged out, and if so, how
+long the terminal should be inactive before logout occurs.  If this
+qualifier and /DISCONNECT are omitted,
+the logout/disconnect default is taken from the current
+SET WATCH_DEFAULT setting.
+<p>The /DISCONNECT, /FORCE_EXIT, and /LOGOUT qualifiers are mutually exclusive.
+<qualitem>(/MEASURE=(measurement[,...]))
+<qualdef>
+Specifies the measurements that should be used for activity determination.
+For <emphasis>(measurement), specify one of the following:
+<table>
+<table_setup>(2\25)
+<table_row>(CPU[:<emphasis>(threshold)]\CPU time (the sum of the CPU time
+used by the process and all its subprocesses, in centiseconds) should be used
+as a criterion.
+If <emphasis>(threshold) is specified, the difference in CPU time between
+passes must exceed the specified threshold for a process to be considered
+active.)
+<table_row>(PROCESS_IO[:<emphasis>(threshold)]\Process I/O (the sum of
+the buffered and direct I/O counts for the process and all its subprocesses)
+should be used as a criterion.
+If <emphasis>(threshold) is specified, the difference in I/O counts between
+passes must exceed the specified threshold for a process to be considered
+active.)
+<table_row>(TERMINAL_IO[:<emphasis>(threshold)]\Terminal I/O (the
+operation count on the terminal device) should be used as a criterion.
+If <emphasis>(threshold) is specified, the difference in I/O counts between
+passes must exceed the specified threshold for a process to be considered
+active.)
+<endtable>
+<p> Any combination of PROCESS_IO, CPU, and TERMINAL_IO is permitted.
+If omitted, <emphasis>(threshold) values default to zero.  Note that
+threshold values should be chosen as a function of the wakeup interval
+(defined with SET INTERVAL).  If no /MEASUREMENT qualifier is specified,
+the measurement settings are taken from the SET WATCH_DEFAULT settings.
+
+<qualitem>(/[NO]WARNING[=deltatime])
+<qualdef>
+Specifies whether the terminal should be warned about inactivity, and if so,
+how long the terminal should be inactive before warning is sent.  The
+warning interval should be less than the logout interval.  If omitted,
+the default is taken from the current SET WATCH_DEFAULT setting.
+<ENDQUALDEFLIST>
+
+<ENDCOMMAND_SECTION>

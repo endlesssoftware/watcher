@@ -1,0 +1,696 @@
+.!++
+.!
+.! NAME:    	WCP_HELPLIB.RNH
+.!
+.! ABSTRACT:	WATCHER Control Program help file.
+.!
+.! FACILITY:	WATCHER Control Program
+.!
+.! DESCRIPTION:
+.!
+.!   This is the RUNOFF source for the help library for WCP.
+.!
+.! AUTHOR:   	    M. Madison
+.!
+.! Copyright (c) 2010, Matthew Madison.
+.!
+.! All rights reserved.
+.!
+.! Redistribution and use in source and binary forms, with or without
+.! modification, are permitted provided that the following conditions
+.! are met:
+.!
+.!     * Redistributions of source code must retain the above
+.!       copyright notice, this list of conditions and the following
+.!       disclaimer.
+.!     * Redistributions in binary form must reproduce the above
+.!       copyright notice, this list of conditions and the following
+.!       disclaimer in the documentation and/or other materials provided
+.!       with the distribution.
+.!     * Neither the name of the copyright owner nor the names of any
+.!       other contributors may be used to endorse or promote products
+.!       derived from this software without specific prior written
+.!       permission.
+.!
+.! THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS
+.! "AS IS" AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT
+.! LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR
+.! A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT
+.! OWNER OR CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL,
+.! SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT
+.! LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE,
+.! DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY
+.! THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
+.! (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
+.! OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+.!
+.! MODIFICATION HISTORY:
+.!
+.!  some date	V1.0	Madison	    Initial coding.
+.!  22-MAR-1991	V2.6	Madison	    Added SET MULTIWARN.
+.!  29-MAR-1991	V2.6-1	Madison	    Keywords were missing from SHOW.
+.!  07-APR-1992	V2.7	Madison	    SET MULTIWARN, SET ACTION, /IMAGE.
+.!  03-FEB-1993	V2.8	Madison	    /FORCE_EXIT.
+.!  24-JUN-1994	V2.9	Madison	    SET INSWAP.
+.!  17-JUL-1997	V3.0	Madison	    EXCLUDE/OPERATOR.
+.!  06-SEP-2010 V3.0-1  Sneddon     Updated license to BSD at request of M. Madison.
+.!--
+.P0
+.AP
+.LM1
+.RM70
+.I-1
+1 EXCLUDE
+ The EXCLUDE command defines WATCHER exclusion records, which identify users
+that should be excluded from being watched for idleness.
+.NJ
+ Format:
+.I+10;EXCLUDE user
+.J
+ The "user" may contain wildcard characters.  Any user that matches the
+specified pattern as well as any other specified criteria is excluded from
+being watched by WATCHER.
+.I-1
+2 Qualifiers
+.I-1
+/ACCPORNAM
+ /ACCPORNAM=pattern
+
+ The /ACCPORNAM qualifier indicates that the user should be eligible for
+exclusion only when using a terminal whose port name
+matches "pattern".  If omitted, /ACCPORNAM=* is assumed.
+.I-1
+/DELETE
+ /DELETE
+ The /DELETE qualifier is used to delete an exclusion record from the
+WATCHER database.  All of the user-matching criteria (username,
+port name, terminal, UIC, privilege mask, time-of-day matrix,
+UIC, and identifier list) must match in order for the record to be
+found and removed.
+.I-1
+/DURING
+ /DURING=(day-time[,...])
+
+ The /DURING qualifier indicates that the user is only eligible for exclusion
+during the specified times on the specified days.  The "day-time"
+specifications are of the form:
+
+ day:hour-range
+ day:(hour-range[,...])
+
+ where "day" may be the name of a day of the week or one of the keywords
+PRIMARY or SECONDARY, and "hour-range" may be a single hour number (0 through
+23) or a pair of hour numbers separated by a hyphen, indicating an inclusive
+range.  If the /DURING qualifier is omitted, time-of-day is not used as
+a criterion in deciding exclusion.
+.I-1
+/HOLDING
+ /HOLDING=ident-pattern
+
+ The /HOLDING qualifier indicates that the user should be eligible for
+exclusion only when holding an identifier that matches the specified ident-
+pattern.  If omitted, holding an identifier is not used as an exclusion
+criterion.
+.I-1
+/IMAGE
+ /IMAGE=filespec-pattern
+
+ The /IMAGE qualifier indicates that the user should be eligible for
+exclusion only when running an executable image that matches the specified
+wildcard pattern.  If omitted, /IMAGE=* is assumed.
+.I-1
+/OPERATOR
+ /OPERATOR
+
+ The /OPERATOR qualifier indicates that the user should be eligible for
+exclusion only if the user's terminal is enabled as an OPCOM operator
+console.  Note that this does not apply to DECwindows users when the
+DECWINDOWS option is set.
+.I-1
+/PRIVILEGES
+ /PRIVILEGES=(priv[,...])
+
+ The /PRIVILEGES qualifier indicates that the user should be eligible for
+exclusion only when holding the specified privileges.  If omitted, privilege
+is not considered as an exclusion criterion.
+.I-1
+/TERMINAL
+ /TERMINAL=dev-pattern
+
+ The /TERMINAL qualifier indicates that the user should be eligible for
+exclusion only when using a terminal whose device name
+matches "dev-pattern".  If omitted, /TERMINAL=* is assumed.
+.I-1
+/UIC
+ /UIC=uic
+
+ The /UIC qualifier indicates that the user should be eligible for exclusion
+only if the user's process UIC matches the specified "uic".  "Uic" may be
+in alphanumeric or octal format and may use an asterisk for the member part
+to indicate any user in a group.  If omitted, /UIC=[*,*] is assumed.
+.I-1
+1 EXIT
+ The EXIT command exits WCP and optionally saves the configuration created
+by the WCP session to a file on exit.
+.NJ
+ Format:
+.I+10;EXIT
+.J
+ If you have changed the configuration and not already saved the new
+configuration to a file, EXIT will save the new configuration automatically
+on exit.  If the configuration has not already been assigned a filename,
+EXIT will prompt for a filename.
+.I-1
+1 HELP
+ The HELP command displays help information about WCP comands.
+.NJ
+ Format:
+.I+10;HELP [topic]
+.J
+.I-1
+1 OVERRIDE
+ The OVERRIDE command defines WATCHER override records, which identify users
+whose terminals should be treated differently from the settings in the
+matching WATCH record.
+.NJ
+ Format:
+.I+10;OVERRIDE user
+.J
+ The "user" may contain wildcard characters.  Any user that matches the
+specified pattern as well as any other specified user-matching criteria
+(port name, UIC, identifiers, terminal, time-of-day, privileges)
+will qualify for override of the WATCH settings (measurement criteria,
+warning and logout/disconnect settings); the values from the override
+record will be used instead.
+.I-1
+2 Qualifiers
+.I-1
+/ACCPORNAM
+ /ACCPORNAM=pattern
+
+ The /ACCPORNAM qualifier indicates that the user should be eligible for
+exclusion only when using a terminal whose port name
+matches "pattern".  If omitted, /ACCPORNAM=* is assumed.
+.I-1
+/DELETE
+ /DELETE
+ The /DELETE qualifier is used to delete an override record from the
+WATCHER database.  All of the user-matching criteria (username,
+port name, terminal, UIC, privilege mask, time-of-day matrix,
+UIC, and identifier list) must match in order for the record to be
+found and removed.
+.I-1
+/DISCONNECT
+ /DISCONNECT[=delta-time]
+ /NODISCONNECT
+
+ This qualifier specifies that the terminal should be disconnected rather
+than logged out when the logout inactivity interval has elapsed.  In addition,
+you may specify what the inactivity interval should be.  If omitted, the
+setting is copied from the WATCH__DEFAULT information.  You cannot mix
+/DISCONNECT, /LOGOUT, and  /FORCE__EXIT.
+.I-1
+/DURING
+ /DURING=(day-time[,...])
+
+ The /DURING qualifier indicates that the user is only eligible for override
+during the specified times on the specified days.  The "day-time"
+specifications are of the form:
+
+ day:hour-range
+ day:(hour-range[,...])
+
+ where "day" may be the name of a day of the week or one of the keywords
+PRIMARY or SECONDARY, and "hour-range" may be a single hour number (0 through
+23) or a pair of hour numbers separated by a hyphen, indicating an inclusive
+range.  If the /DURING qualifier is omitted, time-of-day is not used as
+a matching criterion.
+.I-1
+/FORCE__EXIT
+ /FORCE__EXIT[=delta-time]
+ /NOFORCE__EXIT
+
+ This qualifier specifies that a forced image exit should be performed on
+any user-mode image running on the terminal, rather than having the terminal
+disconnected or the process logged out, when the logout inactivity interval
+has elapsed.  In addition, you may specify what the inactivity interval should
+be.  If omitted, the setting is copied from the WATCH__DEFAULT information.
+You cannot mix /DISCONNECT, /LOGOUT, and /FORCE__EXIT.
+.I-1
+/HOLDING
+ /HOLDING=ident-pattern
+
+ The /HOLDING qualifier indicates that the user should be eligible for
+overrides only when holding an identifier that matches the specified ident-
+pattern.  If omitted, holding an identifier is not used as an matching
+criterion.
+.I-1
+/IMAGE
+ /IMAGE=filespec-pattern
+
+ The /IMAGE qualifier indicates that the user should be eligible for
+exclusion only when running an executable image that matches the specified
+wildcard pattern.  If omitted, /IMAGE=* is assumed.
+.I-1
+/LOGOUT
+ /LOGOUT=[delta-time]
+ /NOLOGOUT
+
+ This qualifier specifies that the terminal should be logged out rather
+than disconnected or an image exit forced when the logout inactivity interval
+has elapsed.  In addition, you may specify what the inactivity interval should
+be.  If omitted, the setting is copied from the WATCH__DEFAULT information. 
+You cannot mix /DISCONNECT, /LOGOUT, and /FORCE__EXIT.
+.I-1
+/MEASURE
+ /MEASURE=(measurement[,...])
+
+ This qualifier indicates what measurement criteria (one or more of
+CPU, TERMINAL__IO, PROCESS__IO) should be used when determining whether
+or not the process using the terminal is idle.  When omitted, the setting
+is copied from the WATCH__DEFAULT information.  If more than one measurement
+is specified, a change in any one of the metrics specified indicates the
+terminal is active.
+ Measurements are specified as follows:
+.NJ
+.I+10;CPU[:threshold]
+.I+10;PROCESS__IO[:threshold]
+.I+10;TERMINAL__IO[:threshold]
+.J
+ Any combination of the three measurements is permitted.  If a measurement
+is specified without a threshold value, a default threshold of zero is
+used.
+.I-1
+/OPERATOR
+ /OPERATOR
+
+ The /OPERATOR qualifier indicates that the user should be eligible for
+exclusion only if the user's terminal is enabled as an OPCOM operator
+console.  Note that this does not apply to DECwindows users when the
+DECWINDOWS option is set.
+.I-1
+/PRIVILEGES
+ /PRIVILEGES=(priv[,...])
+
+ The /PRIVILEGES qualifier indicates that the user should be eligible for
+overrides only when holding the specified privileges.  If omitted, privilege
+is not considered as an user-match criterion.
+.I-1
+/TERMINAL
+ /TERMINAL=dev-pattern
+
+ The /TERMINAL qualifier indicates that the user should be eligible for
+override only when using a terminal whose device name
+matches "dev-pattern".  If omitted, /TERMINAL=* is assumed.
+.I-1
+/UIC
+ /UIC=uic
+
+ The /UIC qualifier indicates that the user should be eligible for override
+only if the user's process UIC matches the specified "uic".  "Uic" may be
+in alphanumeric or octal format and may use an asterisk for the member part
+to indicate any user in a group.  If omitted, /UIC=[*,*] is assumed.
+.I-1
+/WARN
+ /WARN[=delta-time]
+ /NOWARN
+
+ This qualifier is used to specify that the terminal should be warned
+of inactivity after the warning inactivity interval.  In addition, you
+can specify what the interval should be.  /NOWARN disables warnings.
+If omitted, settings are copied from the SET WATCH__DEFAULT information.
+.I-1
+1 QUIT
+ The QUIT command quits WCP without saving configuration information.
+.NJ
+ Format:
+.I+10;QUIT
+.J
+ If you have changed the configuration and not already saved the new
+configuration to a file, QUIT will ask if you really want to quit
+before leaving WCP.
+.I-1
+1 RESET
+ The RESET command sends a RESET command to the WATCHER process.
+.NJ
+ Format:
+.I+10;RESET
+.J
+ If there is a WATCHER process currently running, it flushes all configuration
+and process information it is storing, closes its log and trace files (if any),
+and reloads the configuration from the WATCHER_CONFIG file.  To have
+configuration changes take effect, be sure to SAVE the changes before
+using the RESET command.
+.I-1
+1 SAVE
+ The SAVE command saves a WATCHER configuration.
+.NJ
+ Format:
+.I+10;SAVE [file-spec]
+.J
+.I-1
+1 SET
+ The SET command is used to define default values for certain WATCH and
+EXCLUDE command parameters, and define "global" WATCHER parameters.
+.I-1
+2 ACTION
+ The SET ACTION command defines whether logout, disconnect, warning, and
+OPCOM actions are actually performed.
+.NJ
+ Format:
+.I+10;SET [NO]ACTION
+.J
+ The default is SET ACTION.  When NOACTION is set, logouts, disconnects,
+and warnings are logged in debug/trace and event log files,
+but are not actually performed.  Also disabled are events logged to OPCOM
+operators (but not to an event log file, if any).
+.I-1
+2 BELL
+ The SET BELL command defines whether the bell is rung on terminals
+when WATCHER displays warning and/or logout messages.
+.NJ
+ Format:
+.I+10;SET [NO]BELL
+.J
+ The default is SET NOBELL.
+.I-1
+2 DAYS
+ The SET DAYS command defines the PRIMARY and SECONDARY keywords for the
+EXCLUDE/DURING qualifier.
+.NJ
+ Format:
+.I+10;SET DAYS
+.J
+ The default PRIMARY days are Monday-Friday.  The default SECONDARY days
+are Saturday and Sunday.  Note that these are simply shorthand ways of
+specifying days of the week; PRIMARY and SECONDARY are converted into the
+appropriate days of the week by the EXCLUDE command.
+.I-1
+3 Qualifiers
+.I-1
+/PRIMARY
+ /PRIMARY=(day[,...])
+
+ Makes the specified days part of the PRIMARY grouping.
+.I-1
+/SECONDARY
+ /SECONDARY=(day[,...])
+
+ Makes the specified days part of the SECONDARY grouping.
+.I-1
+2 DEBUG
+ The SET DEBUG command is used to turn on and off debug trace information.
+.NJ
+ Format:
+.I+10;SET [NO]DEBUG[=mask]
+.J
+ The default is SET NODEBUG.  When DEBUG is set, the WATCHER process will
+log debugging/trace information to the file WATCHER_TRACE (by default
+located in SYS$COMMON:[WATCHER] with a file type of .LOG).  This debugging
+information can be used to track down configuration problems or bugs
+in the WATCHER program itself.  The information that is logged depends
+on the value of "mask", which is a decimal number representing a bit
+mask value in which bit 0 enables main-line debugging, bit 1 enables
+exclusion-check debugging, and bit 2 enables override-check debugging.
+If not specified, the default value is 7.
+ WARNING: The debug/trace output can become voluminous.  Use this option only
+when necessary!
+.I-1
+2 DECWINDOWS
+ The SET DECWINDOWS command is used to enable the collection of information
+related to DECwindows support.
+.NJ
+ Format:
+.I+10;SET [NO]DECWINDOWS
+.J
+ Setting DECWINDOWS on causes WATCHER to perform the extra processing needed
+to support watching DECwindows sessions.  The default is NODECWINDOWS.
+.I-1
+2 EVENT__LOG
+ SET EVENT__LOG specifies how WATCHER should record its logout events.
+.NJ
+ Format:
+.I+10;SET [NO]EVENT__LOG
+.J
+ SET NOEVENT__LOG disables all event logging.  SET EVENT__LOG with the
+/OPERATOR qualifier directs log messages to OPCOM operator class(es).
+The /FILE qualifier directs log messages to the specified file.  Events
+that are logged include: WATCHER startup, shutdown, and reset; terminal
+logouts.
+.I-1
+3 Qualifiers
+.I-1
+/OPERATOR
+ /OPERATOR=(oper-class[,...])
+ /NOOPERATOR
+
+ Directs WATCHER log messages to the specified OPCOM operator classes.
+.I-1
+/FILE
+ /FILE=file-spec
+ /NOFILE
+
+ Directs WATCHER log messages to the specified file.  The WATCHER process
+must be able to write to the specified file using the file-spec you specify.
+.I-1
+2 INSWAP
+ The SET INSWAP command controls the use of the $GETJPI NOINSWAP control
+flag by WATCHER.
+.NJ
+ Format:
+.I+10;SET [NO]INSWAP
+.J
+ The default is SET INSWAP.  When NOINSWAP is set, on VAX/VMS V5.2 and
+later (and all versions of OpenVMS AXP), WATCHER will use the NOINSWAP
+control flag on the $GETJPI calls it issues.  This will prevent WATCHER
+from causing unnecessary swapper activity.
+ Note also, however, that NOINSWAP prevents WATCHER from collecting
+the information it needs about swapped-out processes, which may result
+in idle processes not getting logged out (or in some cases, processes
+getting logged out prematurely).
+.I-1
+2 INTERVAL
+ SET INTERVAL defines the wakeup interval for the WATCHER process.
+.NJ
+ Format:
+.I+10;SET INTERVAL=delta-time
+.J
+ The default interval is 5 minutes.  WATCHER hibernates for this length
+of time between searches through the system process list.  Note that for
+best operation, the logout and warning times in WATCH records should be
+multiples of the wakeup interval.  How large an interval you choose depends
+on how accurate you want our logouts to be vs. how much CPU time you can
+spare.  Usually a five-minute interval provides reasonable accuracy for
+half-hour idle-time logouts while not consuming an inordinate amount of
+CPU time on a system averaging 10-15 simultaneous interactive users.  Your
+actual mileage may vary, and you may need to tweak the interval in order
+to achieve the accuracy and low overhead you desire.
+.I-1
+2 MULTIWARN
+ The SET MULTIWARN command is used to enable multiple logout warnings.
+.NJ
+ Format:
+.I+10;SET [NO]MULTIWARN
+.J
+ Enabling MULTIWARN causes WATCHER to warn users of imminent logout
+or disconnection multiple times, if possible, between the /WARNING and
+/LOGOUT, /DISCONNECT, or /FORCE__EXIT time.  By default, only one warning is
+given (at /WARNING time).
+.I-1
+3 Qualifiers
+.I-1
+/INTERVAL
+ /INTERVAL=delta-time
+ Specifies that the interval between warnings should be the specified
+amount of time.  The specified interval should be larger than the wakeup
+interval setting (set with SET INTERVAL).
+.I-1
+2 VERIFY
+ The SET VERIFY command is used to turn on and off the display of commands
+that are read from WCP command files.
+.NJ
+ Format:
+.I+10;SET [NO]VERIFY
+.J
+ The default is NOVERIFY.  Use SET VERIFY to turn on command verification.
+.I-1
+2 WATCH__DEFAULT
+ The SET WATCH__DEFAULT command is used to specify default values to
+be used with subsequent WATCH commands.
+.NJ
+ Format:
+.I+10;SET WATCH__DEFAULT
+.J
+.I-1
+3 Qualifiers
+.I-1
+/DISCONNECT
+ /[NO]DISCONNECT[=delta-time]
+ The /DISCONNECT qualifier is used to enable terminal disconnects as the
+default on subsequent WATCH commands.  Additionally, a default disconnection
+inactivity interval may also be specified.  Only one of /DISCONNECT,
+/FORCE__EXIT, or /LOGOUT may be specified.
+.I-1
+/FORCE__EXIT
+ /FORCE__EXIT[=delta-time]
+ /NOFORCE__EXIT
+ This qualifier enables forced image exits as the default on subsequent
+WATCH commands.  Additionally a default inactivity interval may also
+be specified.
+You cannot mix /DISCONNECT, /LOGOUT, and /FORCE__EXIT.
+.I-1
+/LOGOUT
+ /[NO]LOGOUT[=delta-time]
+ The /LOGOUT qualifier is used to enable logouts as the default on subsequent
+WATCH commands.  Additionally, a default logout inactivity interval may
+also be specified.  
+You cannot mix /DISCONNECT, /LOGOUT, and /FORCE__EXIT.
+.I-1
+/MEASURE
+ /MEASURE=(measurement[,...])
+ The /MEASURE qualifier is used to specify the default measurement criteria
+to be used for subsequent WATCH commands.  Any combination of CPU,
+TERMINAL_IO, and PROCESS_IO may be specified as measurements.
+ Measurements are specified as follows:
+.NJ
+.I+10;CPU[:threshold]
+.I+10;PROCESS__IO[:threshold]
+.I+10;TERMINAL__IO[:threshold]
+.J
+ Any combination of the three measurements is permitted.  If a measurement
+is specified without a threshold value, a default threshold of zero is
+used.
+.I-1
+/WARN
+ /[NO]WARN[=delta-time]
+ The /WARN qualifier is used to enable pre-logout warnings as the default
+on subsequent WATCH commands.  Additionally, a default warning intactivity
+interval (which should be shorter than the logout inactivity interval) may
+also be specified.  Use /NOWARN to have no warnings be the default.
+.I-1
+1 SHOW
+ The SHOW commands displays watch records, exclusion records, and default
+settings for warn, logout, event__log, and interval.
+.NJ
+ Format:
+.I+10;SHOW keyword[,...]
+.J
+where "keyword" can be ALL, BELL, DAYS, DEBUG, DECWINDOWS,
+DEFAULTS (for displaying SET WATCH__DEFAULT information), EVENT__LOG,
+EXCLUDE, FILE, GLOBALS, INTERVAL, MULTIWARN, OVERRIDE, or WATCH.
+.I-1
+2 Qualifiers
+.I-1
+/COMMAND
+ /[NO]COMMAND
+ The /COMMAND qualifier causes the information to be displayed in the
+form of the WCP commands that would be used to re-create that information.
+The default is /NOCOMMAND, which causes the information to be displayed
+in a prettier format.
+.I-1
+/OUTPUT
+ /OUTPUT=file-spec
+ The /OUTPUT qualifier redirects the output of the SHOW command to a
+file.  If omitted, the output is displayed on SYS$OUTPUT.
+.I-1
+1 SHUTDOWN
+ The SHUTDOWN command sends a shutdown request to the WATCHER process.
+.NJ
+ Format:
+.I+10;SHUTDOWN
+.J
+ If WATCHER is currently running, the shutdown request will cause it
+to close its log and trace files (if any) and exit.
+.I-1
+1 WATCH
+ The WATCH command creates a watch record that identifies a terminal (or
+group of terminals) to be watched.
+.NJ
+ Format:
+.I+10;WATCH device
+.J
+ The device specification may contain wildcard
+characters (for matching by STR$MATCH__WILD).  WATCHER always uses
+physical device names (never VTAn names), prepended with the system's
+SCS node name, if there is one, in the form "node$device:".
+ When using wildcards in watch records, bear in mind that WATCHER searches
+watch records sequentially, in the same order as they are entered.  The
+first watch record that matches the device WATCHER is examining is the
+watch record used for that device.  Thus you should probably enter
+specific WATCH commands before entering general ones.
+.I-1
+2 Qualifiers
+.I-1
+/ACCPORNAM
+ /ACCPORNAM=pattern
+ This qualifier is used to match the port name of the terminal
+device.  This is mainly used with terminals connected to terminal servers.
+The "pattern" may contain wildcards.
+.I-1
+/DISCONNECT
+ /DISCONNECT[=delta-time]
+ /NODISCONNECT
+
+ This qualifier specifies that the terminal should be disconnected rather
+than logged out when the logout inactivity interval has elapsed.  In addition,
+you may specify what the inactivity interval should be.  If omitted, the
+setting is copied from the WATCH__DEFAULT information.  You cannot mix
+/DISCONNECT, /FORCE__EXIT, and /LOGOUT.
+.I-1
+/FORCE__EXIT
+ /FORCE__EXIT[=delta-time]
+ /NOFORCE__EXIT
+
+ This qualifier specifies that a forced image exit should be performed on
+any user-mode image running on the terminal, rather than having the terminal
+disconnected or the process logged out, when the logout inactivity interval
+has elapsed.  In addition, you may specify what the inactivity interval should
+be.  If omitted, the setting is copied from the WATCH__DEFAULT information.
+You cannot mix /DISCONNECT, /LOGOUT, and /FORCE__EXIT.
+.i-1
+/GROUP
+ /GROUP=groupname
+ This qualifier is used to assign the WATCH record to a device group.
+Device groups are used to link terminal devices together for WATCHER
+purposes, so that activitiy on any matching terminal in a group is
+counted as activity on all the terminals in the group.  This is
+most useful when you run WATCHER on workstations running the VMS
+Workstation Software.
+.I-1
+/LOGOUT
+ /LOGOUT=[delta-time]
+ /NOLOGOUT
+
+ This qualifier specifies that the terminal should be logged out rather
+than disconnected when the logout inactivity interval has elapsed.  In addition,
+you may specify what the inactivity interval should be.  If omitted, the
+setting is copied from the WATCH__DEFAULT information.
+You cannot mix /DISCONNECT, /LOGOUT, and /FORCE__EXIT.
+.I-1
+/MEASURE
+ /MEASURE=(measurement[,...])
+
+ This qualifier indicates what measurement criteria (one or more of
+CPU, TERMINAL__IO, PROCESS__IO) should be used when determining whether
+or not the process using the terminal is idle.  When omitted, the setting
+is copied from the WATCH__DEFAULT information.  If more than one measurement
+is specified, a change in any one of the metrics specified indicates the
+terminal is active.
+ Measurements are specified as follows:
+.NJ
+.I+10;CPU[:threshold]
+.I+10;PROCESS__IO[:threshold]
+.I+10;TERMINAL__IO[:threshold]
+.J
+ Any combination of the three measurements is permitted.  If a measurement
+is specified without a threshold value, a default threshold of zero is
+used.
+.I-1
+/WARN
+ /WARN[=delta-time]
+ /NOWARN
+
+ This qualifier is used to specify that the terminal should be warned
+of inactivity after the warning inactivity interval.  In addition, you
+can specify what the interval should be.  /NOWARN disables warnings.
+If omitted, settings are copied from the SET WATCH__DEFAULT information.

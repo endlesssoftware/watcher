@@ -1,0 +1,741 @@
+%TITLE 'FORCE'
+MODULE FORCE (IDENT='V1.7-3') =
+BEGIN
+!++
+! FACILITY: 	    WATCHER
+!
+! ABSTRACT: 	    Routines to warn, force, and disconnect users.
+!
+! MODULE DESCRIPTION:
+!
+!   This module contains routines to warn, logout, and disconnect users.
+!
+! AUTHOR:   	    M. Madison
+!
+! Copyright (c) 2010, Matthew Madison.
+!
+! All rights reserved.
+!
+! Redistribution and use in source and binary forms, with or without
+! modification, are permitted provided that the following conditions
+! are met:
+!
+!     * Redistributions of source code must retain the above
+!       copyright notice, this list of conditions and the following
+!       disclaimer.
+!     * Redistributions in binary form must reproduce the above
+!       copyright notice, this list of conditions and the following
+!       disclaimer in the documentation and/or other materials provided
+!       with the distribution.
+!     * Neither the name of the copyright owner nor the names of any
+!       other contributors may be used to endorse or promote products
+!       derived from this software without specific prior written
+!       permission.
+!
+! THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS
+! "AS IS" AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT
+! LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR
+! A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT
+! OWNER OR CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL,
+! SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT
+! LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE,
+! DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY
+! THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
+! (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
+! OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+!
+! CREATION DATE:    20-MAR-1990
+!
+! MODIFICATION HISTORY:
+!
+!   20-MAR-1990	V1.0	Madison	    Initial coding.
+!   21-MAR-1990	V1.0-1	Madison	    Add DECwindows support.
+!   17-OCT-1990	V1.1	Madison	    Add David Effa's disconnect support.
+!   02-NOV-1990	V1.2	Madison	    Add time of day to messages (Ward@Harris)
+!   21-MAR-1991	V1.2-1	Madison	    Fix flaw in BREAKTHROUGH logic (mnk@hac)
+!   22-MAR-1991	V1.3	Madison	    Add multiple warnings support (mnk@hac)
+!   25-MAR-1991	V1.3-1	Madison	    FORCE now sets WARNED flag.
+!   26-MAR-1991	V1.3-2	Madison	    BREAKTHROUGH still not quite right (mnk@hac)
+!   07-APR-1992	V1.4	Madison	    NOACTION, delay between FORCEX/DELPRC.
+!   03-FEB-1993	V1.5	Madison	    Support for just FORCEXing a process.
+!   20-MAR-1993	V1.5-1	Madison	    Fixed support for forced exits.
+!   15-JUL-1997	V1.6	Madison	    Only restart LOCAL DECwindows displays.
+!   17-JUL-1997	V1.6-1	Madison	    Change $FORCEX status to SS$_FORCEDEXIT.
+!   26-JAN-1999	V1.6-2	Madison	    Fix _all_ $FORCEX calls to use SS$_FORCEDEXIT.
+!   15-FEB-1999	V1.7	Madison	    Allow FORCE action to be via command procedure.
+!   19-APR-1999	V1.7-1	Madison	    Fix ACCVIO in LIB$GETDVI call due to uninited descriptor.
+!   05-MAR-2000	V1.7-2	Madison	    Use private memory allocation routines.
+!   06-SEP-2010 V1.7-3  Sneddon     Updated license to BSD at request of M. Madison.
+!--
+    LIBRARY 'SYS$LIBRARY:STARLET';
+    LIBRARY 'WATCHER';
+    LIBRARY 'WATCHER_PRIVATE';
+
+    FORWARD ROUTINE
+    	WARN,
+    	FORCE,
+    	BREAKTHROUGH,
+    	TIMER_AST,
+    	QIO_AST,
+    	DISCONNECT,
+    	DELPRC,
+    	DO_FORCE;
+
+    EXTERNAL ROUTINE
+    	LOG_PUT_OUTPUT,
+    	PERFORM_DISCONNECT,
+    	MEM_FREECHK,
+    	G_HAT (STR$COPY_R, STR$PREFIX, STR$APPEND, LIB$SYS_FAO, LIB$GETDVI,
+    	    LIB$ADD_TIMES, LIB$GET_EF, LIB$GETDVI, LIB$SUB_TIMES, LIB$SPAWN);
+
+    EXTERNAL LITERAL
+    	WATCHER__INACTIVE, WATCHER__DISCWARN, WATCHER__LOGWARN,
+    	WATCHER__DISCONNECT, WATCHER__DISCONNECTED, WATCHER__LOGOUT,
+    	WATCHER__LOGGEDOUT, WATCHER__FORCEXWARN, WATCHER__FORCEX,
+    	WATCHER__FORCEDEXIT, LIB$_NORMAL;
+
+    EXTERNAL
+    	GLOBALS	    : GBLDEF;
+
+    OWN
+    	SET_DELPRCDLY  	    : INITIAL (0),
+    	DELPRCDLY	    : VECTOR [2,LONG],
+    	use_proc    	    : INITIAL (0),
+    	checked_for_proc    : INITIAL (0);
+
+
+%SBTTL 'WARN'
+GLOBAL ROUTINE WARN (CTR : REF CTRDEF) =
+BEGIN
+!++
+! FUNCTIONAL DESCRIPTION:
+!
+!   Issues a "logout imminent" warning to a terminal.
+!
+! RETURNS:  	cond_value, longword (unsigned), write only, by value
+!
+! PROTOTYPE:
+!
+!   WARN ctrrec
+!
+! IMPLICIT INPUTS:  None.
+!
+! IMPLICIT OUTPUTS: None.
+!
+! COMPLETION CODES:
+!
+!   SS$_NORMAL:	    	normal successful completion.
+!
+! SIDE EFFECTS:
+!
+!   None.
+!--
+    LOCAL
+    	LOGTIM	: BLOCK [8,BYTE],
+    	NOW 	: BLOCK [8,BYTE],
+    	REMAIN	: BLOCK [8,BYTE],
+    	SDSC	: BLOCK [DSC$K_S_BLN,BYTE],
+    	CTRSTR	: BLOCK [DSC$K_S_BLN,BYTE],
+    	FAOBUF	: BLOCK [DSC$K_S_BLN,BYTE],
+    	MSGBUF	: VECTOR [255,BYTE],
+    	MSGLEN	: WORD;
+
+    SDSC [DSC$B_DTYPE] = DSC$K_DTYPE_T;
+    SDSC [DSC$B_CLASS] = DSC$K_CLASS_S;
+
+    $GETTIM (TIMADR=NOW);
+    IF NOT (.CTR [CTR_V_FORCE] OR .CTR [CTR_V_DISCON] OR
+    	    (.CTR [CTR_V_EXIT] AND .CTR [CTR_W_IMGLEN] GTR 0))
+    THEN
+    BEGIN
+    	CTR [CTR_V_WARNED] = 1;
+    	CH$MOVE (8, NOW, CTR [CTR_Q_LASTWARN]);
+    	SDSC [DSC$W_LENGTH] = .CTR [CTR_W_DEVLEN];
+    	SDSC [DSC$A_POINTER] = CTR [CTR_T_DEVNAM];
+    	LIB$GETDVI (%REF (DVI$_OPCNT), 0, SDSC, CTR [CTR_L_TIOCT]);
+    	TRACE (DBG_M_MAIN, '   -- skipped WARN; no force type qualifies');
+    	RETURN SS$_NORMAL;
+    END;
+
+    INIT_DYNDESC (FAOBUF, CTRSTR);
+    SDSC [DSC$W_LENGTH] = %ALLOCATION (MSGBUF);
+    SDSC [DSC$A_POINTER] = MSGBUF;
+
+    CTR [CTR_V_WARNED] = NOT .GLOBALS [GBL_V_MULTIWARN];
+    IF .GLOBALS [GBL_V_MULTIWARN] AND
+    	    CH$NEQ (8, CTR [CTR_Q_LASTWARN], 8, UPLIT (0,0), %CHAR (0)) THEN
+    BEGIN
+    	IF LIB$ADD_TIMES (CTR [CTR_Q_LASTWARN], GLOBALS [GBL_Q_MWINTVL], LOGTIM) THEN
+    	    IF LIB$SUB_TIMES (LOGTIM, NOW, REMAIN) EQL LIB$_NORMAL THEN
+    	    BEGIN
+    	    	TRACE (DBG_M_MAIN, '   -- MULTIWARN: next warning not until !%D', LOGTIM);
+    	    	RETURN SS$_NORMAL;
+    	    END;
+    END;
+
+    $GETMSG (MSGID=WATCHER__INACTIVE, MSGLEN=MSGLEN, BUFADR=SDSC);
+    STR$COPY_R (CTRSTR, MSGLEN, MSGBUF);
+    IF .GLOBALS [GBL_V_BELL] THEN
+    	STR$PREFIX (CTRSTR, %ASCID %STRING (%CHAR (7)));
+    STR$PREFIX (CTRSTR, %ASCID'!/');
+
+    $GETMSG (MSGID=(IF .CTR [CTR_V_DISCON] THEN WATCHER__DISCWARN
+    	    ELSE IF .CTR [CTR_V_EXIT] THEN WATCHER__FORCEXWARN
+    	    ELSE WATCHER__LOGWARN), MSGLEN=MSGLEN, BUFADR=SDSC);
+    SDSC [DSC$W_LENGTH] = .MSGLEN;
+    STR$APPEND (CTRSTR, %ASCID'!/');
+    STR$APPEND (CTRSTR, SDSC);
+    CH$FILL (%CHAR (0), %ALLOCATION (REMAIN), REMAIN);
+    IF LIB$ADD_TIMES (CTR [CTR_Q_LASTCHG], CTR [CTR_Q_FORCETIME], LOGTIM) THEN
+    BEGIN
+    	IF NOT LIB$SUB_TIMES (LOGTIM, NOW, REMAIN) THEN
+    	    CH$FILL (%CHAR (0), %ALLOCATION (REMAIN), REMAIN);
+    END
+    ELSE
+    	CH$FILL (%CHAR (0), %ALLOCATION (LOGTIM), LOGTIM);
+
+    STR$APPEND (CTRSTR, %ASCID'!/');
+    LIB$SYS_FAO (CTRSTR, 0, FAOBUF, CTR [CTR_Q_LASTCHG], NOW, REMAIN, LOGTIM);
+
+    SDSC [DSC$W_LENGTH] = .CTR [CTR_W_DEVLEN];
+    SDSC [DSC$A_POINTER] = CTR [CTR_T_DEVNAM];
+
+    IF .GLOBALS [GBL_V_NOACTION] THEN
+    	TRACE (DBG_M_MAIN, '   -- NOACTION setting prevented warning on !AS',
+    	    	    SDSC)
+    ELSE
+    	BREAKTHROUGH (SDSC, FAOBUF);
+
+    CH$MOVE (8, NOW, CTR [CTR_Q_LASTWARN]);
+    LIB$GETDVI (%REF (DVI$_OPCNT), 0, SDSC, CTR [CTR_L_TIOCT]);
+
+    FREE_STRINGS (FAOBUF, CTRSTR);
+
+    SS$_NORMAL
+
+END; ! WARN
+
+%SBTTL 'FORCE'
+GLOBAL ROUTINE FORCE (CTR : REF CTRDEF, CHKQ_A, COUNTQ_A) =
+BEGIN
+!++
+! FUNCTIONAL DESCRIPTION:
+!
+!   Disconnects or logs out a user.
+!
+! RETURNS:  	cond_value, longword (unsigned), write only, by value
+!
+! PROTOTYPE:
+!
+!   FORCE ctrrec
+!
+! IMPLICIT INPUTS:  None.
+!
+! IMPLICIT OUTPUTS: None.
+!
+! COMPLETION CODES:
+!
+!   SS$_NORMAL:	    	normal successful completion.
+!
+! SIDE EFFECTS:
+!
+!   None.
+!--
+    BIND
+    	CHKQUE	= .CHKQ_A   	: QUEDEF,
+    	COUNTQ	= .COUNTQ_A 	: QUEDEF;
+
+    LOCAL
+    	CHK 	: REF CHKDEF,
+    	C   	: REF CTRDEF,
+    	LOGTIM	: BLOCK [8,BYTE],
+    	SDSC	: BLOCK [DSC$K_S_BLN,BYTE],
+    	STR	: BLOCK [DSC$K_S_BLN,BYTE],
+    	PRVMSK	: BLOCK [8,BYTE],
+    	MSGBUF	: VECTOR [255,BYTE],
+    	MSGLEN	: WORD,
+    	WSUNIT,
+    	STATUS;
+
+    IF NOT (.CTR [CTR_V_DISCON] OR .CTR [CTR_V_FORCE] OR
+    	    (.CTR [CTR_V_EXIT] AND .CTR [CTR_W_IMGLEN] GTR 0))
+    THEN
+    BEGIN
+    	TRACE (DBG_M_MAIN, '   -- skipped FORCE; no force type qualifies');
+    	IF .CTR [CTR_V_EXIT] THEN CTR [CTR_V_VALID] = 0;
+    	RETURN SS$_NORMAL;
+    END;
+
+    IF NOT .SET_DELPRCDLY THEN
+    BEGIN
+    	LOCAL
+    	    lnmlst  : $ITMLST_DECL (ITEMS=1),
+    	    lnmbuf  : VECTOR [256,BYTE];
+    	BIND delprcdlydsc = %ASCID'0 00:00:03.00' : BLOCK [,BYTE];
+    	sdsc [DSC$B_DTYPE] = DSC$K_DTYPE_T;
+    	sdsc [DSC$B_CLASS] = DSC$K_CLASS_S;
+    	sdsc [DSC$W_LENGTH] = 0;
+    	sdsc [DSC$A_POINTER] = lnmbuf;
+    	$ITMLST_INIT (ITMLST=lnmlst,
+    	    	    	(ITMCOD=LNM$_STRING, BUFADR=lnmbuf, BUFSIZ=%ALLOCATION (lnmbuf), RETLEN=sdsc [DSC$W_LENGTH]));
+    	IF $TRNLNM (TABNAM=%ASCID'LNM$FILE_DEV', LOGNAM=%ASCID'WATCHER_DELPRC_DELAY', ITMLST=lnmlst) THEN
+    	BEGIN
+    	    IF NOT $BINTIM (TIMBUF=sdsc, TIMADR=delprcdly) THEN
+    	    	$BINTIM (TIMBUF=delprcdlydsc, TIMADR=delprcdly);
+    	END
+    	ELSE
+    	    $BINTIM (TIMBUF=delprcdlydsc, TIMADR=delprcdly);
+    	SET_DELPRCDLY = 1;
+    END;
+
+    INIT_DYNDESC (STR);
+    SDSC [DSC$B_DTYPE] = DSC$K_DTYPE_T;
+    SDSC [DSC$B_CLASS] = DSC$K_CLASS_S;
+
+    IF .CTR [CTR_V_DECW] THEN
+    BEGIN
+    	C = .COUNTQ [QUE_L_HEAD];
+    	WHILE .C NEQA COUNTQ [QUE_L_HEAD] DO
+    	BEGIN
+    	    IF .C [CTR_V_DECW] AND CH$EQL (.C [CTR_W_GRPLEN],
+    	    	    C [CTR_T_GRPNAM], .CTR [CTR_W_GRPLEN],
+    	    	    CTR [CTR_T_GRPNAM], %C' ') THEN
+    	    BEGIN
+    	    	C [CTR_V_VALID] = 0;
+    	    	IF .GLOBALS [GBL_V_NOACTION] THEN
+    	    	    TRACE (DBG_M_MAIN, %STRING ('   -- NOACTION setting prevented ',
+    	    	    	    '$DELPRC on pid !XL'), .C [CTR_L_PID])
+    	    	ELSE
+    	    	    DO_FORCE (.CTR [CTR_L_PID], 1);
+    	    	IF .C NEQA CTR THEN
+    	    	BEGIN
+    	    	    CHK = .CHKQUE [QUE_L_HEAD];
+    	    	    WHILE .CHK NEQA CHKQUE [QUE_L_HEAD] DO
+    	    	    BEGIN
+    	    	    	IF .CHK [CHK_L_CREC] EQL .C THEN
+    	    	    	BEGIN
+    	    	    	    REMQUE (.CHK, CHK);
+    	    	    	    MEM_FREECHK (CHK);
+    	    	    	    EXITLOOP;
+    	    	    	END;
+    	    	    	CHK = .CHK [CHK_L_FLINK];
+    	    	    END;
+    	    	END;
+    	    END;
+    	    C = .C [CTR_L_FLINK];
+    	END;
+
+    	IF .CTR [CTR_W_ACCLEN] GEQ 6 AND
+    	    CH$EQL (6, UPLIT('LOCAL/'), 6, CTR [CTR_T_ACCNAM]) THEN
+    	BEGIN
+    	    SDSC [DSC$W_LENGTH] = .CTR [CTR_W_DEVLEN];
+    	    SDSC [DSC$A_POINTER] = CTR [CTR_T_DEVNAM];
+    	    LIB$GETDVI (%REF (DVI$_UNIT), 0, SDSC, WSUNIT);
+    	    LIB$SYS_FAO (%ASCID'RESTART_!UL', 0, STR, .WSUNIT);
+
+    	    PRVMSK [0,0,32,0] = PRVMSK [4,0,32,0] = 0;
+    	    PRVMSK [PRV$V_CMKRNL] = PRVMSK [PRV$V_TMPMBX] =
+    	    	PRVMSK [PRV$V_NETMBX] =-1;
+
+    	    IF .GLOBALS [GBL_V_NOACTION] THEN
+    	    	TRACE (DBG_M_MAIN, '   -- NOACTION setting prevented !AS job from starting.',
+    	    	       STR)
+    	    ELSE
+    	    	$CREPRC (
+    	    	    IMAGE=%ASCID'SYS$SYSTEM:LOGINOUT.EXE',
+    	    	    INPUT=%ASCID'WATCHER_DIR:DECW_STARTLOGIN.COM',
+    	    	    OUTPUT=%ASCID'NL:', ERROR=%ASCID'NL:',
+    	    	    PRVADR=PRVMSK, PRCNAM=STR,
+    	    	    STSFLG=PRC$M_DETACH+PRC$M_NOUAF,
+    	    	    UIC=%X'00010004');
+    	END
+    	ELSE
+    	    TRACE (DBG_M_MAIN, '  -- non-LOCAL DECwindows display; will not restart.');
+    END
+    ELSE
+    BEGIN
+
+    	SDSC [DSC$W_LENGTH] = %ALLOCATION (MSGBUF);
+    	SDSC [DSC$A_POINTER] = MSGBUF;
+
+    	$GETMSG (MSGID=(IF .CTR [CTR_V_DISCON] THEN WATCHER__DISCONNECT
+    	    ELSE IF .CTR [CTR_V_EXIT] THEN WATCHER__FORCEX
+    	    ELSE WATCHER__LOGOUT), MSGLEN=MSGLEN, BUFADR=SDSC);
+    	SDSC [DSC$W_LENGTH] = .MSGLEN;
+        LIB$SYS_FAO (SDSC, 0, STR, 0);  ! sticks the time in
+    	IF .GLOBALS [GBL_V_BELL] THEN
+    	    STR$PREFIX (STR, %ASCID %STRING (%CHAR (7)));
+    	STR$PREFIX (STR, %ASCID %STRING (%CHAR (13), %CHAR (10)));
+    	STR$APPEND (STR, %ASCID %STRING (%CHAR (13), %CHAR (10)));
+
+    	SDSC [DSC$W_LENGTH] = .CTR [CTR_W_DEVLEN];
+    	SDSC [DSC$A_POINTER] = CTR [CTR_T_DEVNAM];
+    	IF NOT .GLOBALS [GBL_V_NOACTION] AND
+    	    (NOT .CTR [CTR_V_EXIT] OR .CTR [CTR_W_IMGLEN] GTR 0)
+    	THEN BREAKTHROUGH (SDSC, STR);
+
+    	IF .CTR [CTR_V_DISCON] THEN
+    	BEGIN
+    	    IF .GLOBALS [GBL_V_NOACTION] THEN
+    	    BEGIN
+    	    	CTR [CTR_V_VALID] = 0;
+    	    	TRACE (DBG_M_MAIN, '   -- NOACTION prevented disconnect of !AS',
+    	    	    .SDSC);
+    	    END
+    	    ELSE
+    	    BEGIN
+    	    	STATUS = DISCONNECT (SDSC);
+    	    	IF NOT .STATUS THEN
+    	    	BEGIN
+    	    	    TRACE (DBG_M_MAIN, '    -- DISCONNECT failed, sts=!XL', .STATUS);
+                    DO_FORCE (.CTR [CTR_L_PID], 1);
+    	    	END;
+    	    END;
+    	END
+    	ELSE IF .CTR [CTR_V_EXIT] THEN
+    	BEGIN
+    	    IF .GLOBALS [GBL_V_NOACTION] THEN
+    	    BEGIN
+    	    	CTR [CTR_V_VALID] = 0;
+    	    	TRACE (DBG_M_MAIN, '   -- NOACTION prevented $FORCEX of process !XL',
+    	    	    .CTR [CTR_L_PID]);
+    	    END
+    	    ELSE
+    	    BEGIN
+    	    	IF .CTR [CTR_W_IMGLEN] GTR 0 THEN
+    	    	BEGIN
+    	    	    STATUS = DO_FORCE (.CTR [CTR_L_PID], 0);
+    	    	    IF NOT .STATUS THEN
+    	    	    	TRACE (DBG_M_MAIN, '    -- $FORCEX failed, sts=!XL', .STATUS);
+    	    	END
+    	    	ELSE
+    	    	    TRACE (DBG_M_MAIN, '   -- $FORCEX skipped - no user-mode image running in process !XL',
+    	    	    	.CTR [CTR_L_PID]);
+    	    END;
+    	END
+    	ELSE
+    	IF .GLOBALS [GBL_V_NOACTION] THEN
+    	BEGIN
+    	    CTR [CTR_V_VALID] = 0;
+    	    TRACE (DBG_M_MAIN, '   -- NOACTION prevented $DELPRC of pid !XL',
+    	    	    	.CTR [CTR_L_PID]);
+    	END
+    	ELSE
+    	    DO_FORCE (.CTR [CTR_L_PID], 1);
+    END;
+
+    SDSC [DSC$W_LENGTH] = %ALLOCATION (MSGBUF);
+    SDSC [DSC$A_POINTER] = MSGBUF;
+    $GETMSG (MSGID=(IF .CTR [CTR_V_DISCON] THEN WATCHER__DISCONNECTED
+    	    ELSE IF .CTR [CTR_V_EXIT] THEN WATCHER__FORCEDEXIT
+    	    ELSE WATCHER__LOGGEDOUT), MSGLEN=MSGLEN, BUFADR=SDSC, FLAGS=1);
+    SDSC [DSC$W_LENGTH] = .MSGLEN;
+    LIB$SYS_FAO (SDSC, 0, STR, .CTR [CTR_W_USRLEN], CTR [CTR_T_USRNAM],
+    	.CTR [CTR_L_PID], .CTR [CTR_W_DEVLEN], CTR [CTR_T_DEVNAM],
+    	.CTR [CTR_W_ACCLEN], CTR [CTR_T_ACCNAM], CTR [CTR_Q_LASTCHG]);
+
+    IF .CTR [CTR_V_EXIT] THEN CTR [CTR_V_VALID] = 0;
+    CTR [CTR_V_WARNED] = 1;  ! make sure we don't warn after forcing
+
+    LOG_PUT_OUTPUT (STR);
+
+    FREE_STRINGS (STR);
+
+    SS$_NORMAL
+
+END; ! FORCE
+
+%SBTTL 'BREAKTHROUGH'
+ROUTINE BREAKTHROUGH (DEVNAM_A, MSGDSC_A) =
+BEGIN
+!++
+! FUNCTIONAL DESCRIPTION:
+!
+!   Writes a message on another person's terminal.
+!
+! RETURNS:  	cond_value, longword (unsigned), write only, by value
+!
+! PROTOTYPE:
+!
+!   BREAKTHROUGH  devnam, msgdsc
+!
+! IMPLICIT INPUTS:  None.
+!
+! IMPLICIT OUTPUTS: None.
+!
+! COMPLETION CODES:
+!
+!   SS$_NORMAL:	    	normal successful completion.
+!
+! SIDE EFFECTS:
+!
+!   None.
+!--
+    BIND
+    	DEVNAM	= .DEVNAM_A 	: BLOCK [,BYTE],
+    	MSGDSC	= .MSGDSC_A 	: BLOCK [,BYTE];
+
+    OWN
+    	QIOEF	: INITIAL (-1),
+    	TMREF	: INITIAL (-1),
+    	THRESH	: VECTOR [2,LONG];
+
+    LOCAL
+    	CHAN	: WORD,
+    	IOSB	: VECTOR [4,WORD],
+    	STATUS;
+
+    IF .QIOEF EQL -1 THEN
+    BEGIN
+    	LIB$GET_EF (QIOEF);
+    	LIB$GET_EF (TMREF);
+    	$BINTIM (TIMBUF=%ASCID'0 00:00:05', TIMADR=THRESH);
+    END;
+
+    STATUS = $ASSIGN (DEVNAM=DEVNAM, CHAN=CHAN);
+    IF NOT .STATUS THEN RETURN .STATUS;
+
+    STATUS = $SETIMR (EFN=.TMREF, DAYTIM=THRESH, ASTADR=TIMER_AST, REQIDT=CHAN);
+    IF NOT .STATUS THEN
+    BEGIN
+    	$DASSGN (CHAN=.CHAN);
+    	RETURN .STATUS;
+    END;
+    STATUS = $QIO (EFN=.QIOEF, CHAN=.CHAN, FUNC=IO$_WRITEVBLK OR IO$M_BREAKTHRU,
+    	IOSB=IOSB, ASTADR=QIO_AST, ASTPRM=CHAN, P1=.MSGDSC [DSC$A_POINTER],
+    	P2=.MSGDSC [DSC$W_LENGTH]);
+    IF NOT .STATUS THEN
+    BEGIN
+    	$CANTIM (REQIDT=CHAN);
+    	$DASSGN (CHAN=.CHAN);
+    	RETURN .STATUS;
+    END;
+    $SYNCH (EFN=.QIOEF, IOSB=IOSB);
+    $DASSGN (CHAN=.CHAN);
+
+    SS$_NORMAL
+
+END; ! BREAKTHROUGH
+
+%SBTTL 'TIMER_AST'
+ROUTINE TIMER_AST (CHAN_A) =
+BEGIN
+!++
+! FUNCTIONAL DESCRIPTION:
+!
+!   This AST routine is executed when the SETIMR AST is delivered,
+!   because the QIO timed out.
+!
+! RETURNS:  	cond_value, longword (unsigned), write only, by value
+!
+! PROTOTYPE:
+!
+!   TIMER_AST  reqidt (=address of I/O channel)
+!
+! IMPLICIT INPUTS:  None.
+!
+! IMPLICIT OUTPUTS: None.
+!
+! COMPLETION CODES:
+!
+!   SS$_NORMAL:	    	normal successful completion.
+!
+! SIDE EFFECTS:
+!
+!   None.
+!--
+    BIND
+    	CHAN = .CHAN_A	: WORD;
+
+    $CANCEL (CHAN=.CHAN);
+
+    SS$_NORMAL
+
+END; ! TIMER_AST
+
+%SBTTL 'QIO_AST'
+ROUTINE QIO_AST (REQIDT) =
+BEGIN
+!++
+! FUNCTIONAL DESCRIPTION:
+!
+!   This AST routine is executed when the QIO completion AST is delivered.
+!
+! RETURNS:  	cond_value, longword (unsigned), write only, by value
+!
+! PROTOTYPE:
+!
+!   QIO_AST  reqidt (= address of I/O channel)
+!
+! IMPLICIT INPUTS:  None.
+!
+! IMPLICIT OUTPUTS: None.
+!
+! COMPLETION CODES:
+!
+!   SS$_NORMAL:	    	normal successful completion.
+!
+! SIDE EFFECTS:
+!
+!   None.
+!--
+    $CANTIM (REQIDT=.REQIDT);
+
+    SS$_NORMAL
+
+END; ! QIO_AST
+
+%SBTTL 'DISCONNECT'
+ROUTINE DISCONNECT (TRMNAM_A) = 
+BEGIN
+!++
+! FUNCTIONAL DESCRIPTION:
+!
+!   Disconnects a virtual terminal.
+!
+! RETURNS:  	cond_value, longword (unsigned), write only, by value
+!
+! PROTOTYPE:
+!
+!   DISCONNECT  trmnam
+!
+! trmnam:   char_string, character string, read only, by descriptor
+!
+! IMPLICIT INPUTS:  None.
+!
+! IMPLICIT OUTPUTS: None.
+!
+! COMPLETION CODES:
+!
+!   SS$_NORMAL:	    	normal successful completion.
+!
+! SIDE EFFECTS:
+!
+!   None.
+!--
+    LOCAL
+    	ARGLST	: VECTOR [2,LONG],
+    	DEVNAM	: BLOCK [DSC$K_S_BLN,BYTE],
+    	STATUS;
+
+    INIT_DYNDESC (DEVNAM);
+    STATUS = LIB$GETDVI (%REF (DVI$_FULLDEVNAM), 0, .TRMNAM_A, 0, DEVNAM);
+    IF NOT .STATUS THEN RETURN .STATUS;
+
+    ARGLST [0] = 1;
+    ARGLST [1] = DEVNAM;
+
+    STATUS = $CMKRNL (ROUTIN=PERFORM_DISCONNECT, ARGLST=ARGLST);
+
+    FREE_STRINGS (DEVNAM);
+
+    .STATUS
+
+END; ! DISCONNECT
+
+%SBTTL 'DELPRC'
+GLOBAL ROUTINE DELPRC (PID) = 
+BEGIN
+!++
+! FUNCTIONAL DESCRIPTION:
+!
+!   Issues a $DELPRC on the specified PID.  Called as a timer AST
+!   routine -- after a 2-second delay following the $FORCEX call.
+!
+! RETURNS:  	cond_value, longword (unsigned), write only, by value
+!
+! PROTOTYPE:
+!
+!   DELPRC  pid
+!
+! IMPLICIT INPUTS:  None.
+!
+! IMPLICIT OUTPUTS: None.
+!
+! COMPLETION CODES:
+!
+!   SS$_NORMAL:	    	normal successful completion.
+!
+! SIDE EFFECTS:
+!
+!   None.
+!--
+
+    $DELPRC (PIDADR=PID)
+
+END; ! DELPRC
+
+%SBTTL 'DO_FORCE'
+ROUTINE DO_FORCE (pid, do_delprc) = 
+BEGIN
+!++
+! FUNCTIONAL DESCRIPTION:
+!
+!   Performs a process force, either through a command procedure
+!   or through $FORCEX (and possibly $DELPRC).
+!
+! RETURNS:  	cond_value, longword (unsigned), write only, by value
+!
+! PROTOTYPE:
+!
+!   DO_FORCE pid, do_delprc
+!
+! IMPLICIT INPUTS:  None.
+!
+! IMPLICIT OUTPUTS: None.
+!
+! COMPLETION CODES:
+!
+!   SS$_NORMAL:	    	normal successful completion.
+!
+! SIDE EFFECTS:	    None.
+!--
+
+    LOCAL
+    	status;
+
+    IF NOT .checked_for_proc THEN
+    BEGIN
+    	LOCAL
+    	    fab :	$FAB_DECL;
+
+    	$FAB_INIT (FAB=fab, FNM='WATCHER_DIR:WATCHER_LOGOUT.COM', FAC=GET, SHR=SHRGET);
+    	use_proc = $OPEN (FAB=fab);
+    	IF .use_proc THEN
+    	    $CLOSE (FAB=fab);
+    	checked_for_proc = 1;
+    END;
+
+    IF .use_proc THEN
+    BEGIN
+    	LOCAL
+    	    buf	    : VECTOR [512,BYTE],
+    	    dsc	    : BLOCK [DSC$K_S_BLN,BYTE];
+
+    	dsc [DSC$B_CLASS] = DSC$K_CLASS_S;
+    	dsc [DSC$B_DTYPE] = DSC$K_DTYPE_T;
+    	dsc [DSC$A_POINTER] = buf;
+    	dsc [DSC$W_LENGTH] = %ALLOCATION (buf);
+
+    	status = $FAO (%ASCID'@WATCHER_DIR:WATCHER_LOGOUT !XL !UL',
+    	    	       dsc [DSC$W_LENGTH], dsc, .pid, .do_delprc);
+    	IF .status THEN
+    	BEGIN
+    	    TRACE (DBG_M_MAIN, '  -- spawning: !AS', dsc);
+    	    status = LIB$SPAWN (dsc);
+    	END;
+
+    END
+    ELSE
+    BEGIN
+    	status = $FORCEX (PIDADR=pid, CODE=SS$_FORCEDEXIT);
+    	IF .status AND .do_delprc THEN
+    	    $SETIMR (DAYTIM=delprcdly, ASTADR=DELPRC, REQIDT=.pid);
+    END;
+
+    .status
+
+END; ! DO_FORCE
+
+END
+ELUDOM

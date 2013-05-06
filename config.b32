@@ -1,0 +1,369 @@
+%TITLE 'CONFIG'
+MODULE CONFIG (IDENT='V1.1-1') =
+BEGIN
+!++
+! FACILITY: 	    WATCHER
+!
+! ABSTRACT: 	    Configuration file I/O routines.
+!
+! MODULE DESCRIPTION:
+!
+!   This module contains routines that read and write WATCHER configuration
+!   files.  These routines are used by WATCHER and by WCP.
+!
+! AUTHOR:   	    M. Madison
+!
+! Copyright (c) 2010, Matthew Madison.
+!
+! All rights reserved.
+!
+! Redistribution and use in source and binary forms, with or without
+! modification, are permitted provided that the following conditions
+! are met:
+!
+!     * Redistributions of source code must retain the above
+!       copyright notice, this list of conditions and the following
+!       disclaimer.
+!     * Redistributions in binary form must reproduce the above
+!       copyright notice, this list of conditions and the following
+!       disclaimer in the documentation and/or other materials provided
+!       with the distribution.
+!     * Neither the name of the copyright owner nor the names of any
+!       other contributors may be used to endorse or promote products
+!       derived from this software without specific prior written
+!       permission.
+!
+! THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS
+! "AS IS" AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT
+! LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR
+! A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT
+! OWNER OR CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL,
+! SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT
+! LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE,
+! DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY
+! THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
+! (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
+! OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+!
+! CREATION DATE:    17-NOV-1989
+!
+! MODIFICATION HISTORY:
+!
+!   17-NOV-1989	V1.0	Madison	    Initial coding.
+!   20-MAR-1990	V1.0-1	Madison	    Bug fix.
+!   03-FEB-1993	V1.1	Madison	    Save WATCH_DEFAULT settings.
+!   06-SEP-2010 V1.1-1  Sneddon     Updated license to BSD at request of M. Madison.
+!--
+    LIBRARY 'SYS$LIBRARY:STARLET';
+    LIBRARY 'WATCHER';
+    LIBRARY 'WCP';
+
+    EXTERNAL ROUTINE
+    	STR$COPY_DX 	: BLISS ADDRESSING_MODE (GENERAL),
+    	STR$COPY_R  	: BLISS ADDRESSING_MODE (GENERAL),
+    	STR$FREE1_DX	: BLISS ADDRESSING_MODE (GENERAL),
+    	LIB$GET_VM  	: BLISS ADDRESSING_MODE (GENERAL),
+    	LIB$FREE_VM 	: BLISS ADDRESSING_MODE (GENERAL);
+
+    EXTERNAL
+    	TRMQUE	    : QUEDEF,
+    	EXCQUE	    : QUEDEF,
+    	OVRQUE	    : QUEDEF,
+    	GLOBALS	    : GBLDEF,
+    	DEFAULTS    : WEAK DFLTDEF;
+
+    LITERAL
+    	CFG_K_TRM   = 13832,
+    	CFG_K_EXC   = 91738,
+    	CFG_K_OVR   = 72619,
+    	CFG_K_GBL   = 83625,
+    	CFG_K_DFLT  = 40645;
+
+%SBTTL 'LOAD_CONFIG'
+GLOBAL ROUTINE LOAD_CONFIG (FSPEC_A, DFSPEC_A, RSPEC_A) = 
+BEGIN
+!++
+! FUNCTIONAL DESCRIPTION:
+!
+!   Loads a WATCHER configuration.
+!
+! RETURNS:  	cond_value, longword (unsigned), write only, by value
+!
+! PROTOTYPE:
+!
+!   LOAD_CONFIG [filespec] [,defspec] [,rspec]
+!
+! IMPLICIT INPUTS:  None.
+!
+! IMPLICIT OUTPUTS: None.
+!
+! COMPLETION CODES:
+!
+!   SS$_NORMAL:	    	normal successful completion.
+!
+! SIDE EFFECTS:
+!
+!   None.
+!--
+    BUILTIN
+    	ACTUALCOUNT;
+
+    LOCAL
+    	FAB 	: $FAB_DECL,
+    	RAB 	: $RAB_DECL,
+    	NAM 	: $NAM_DECL,
+    	XABFHC	: $XABFHC_DECL,
+    	FSPEC	: BLOCK [DSC$K_S_BLN,BYTE],
+    	DFSPEC	: BLOCK [DSC$K_S_BLN,BYTE],
+    	RSPEC	: VECTOR [255,BYTE],
+    	STATUS;
+
+    $INIT_DYNDESC (FSPEC);
+    $INIT_DYNDESC (DFSPEC);
+    $FAB_INIT (FAB=FAB, FAC=GET, SHR=SHRGET, XAB=XABFHC, NAM=NAM);
+    $RAB_INIT (RAB=RAB, FAB=FAB);
+    $XABFHC_INIT (XAB=XABFHC);
+    $NAM_INIT (NAM=NAM, RSA=RSPEC, RSS=%ALLOCATION (RSPEC));
+
+    STATUS = (ACTUALCOUNT () GTR 0);
+    IF .STATUS THEN STATUS = (.FSPEC_A NEQA 0);
+    IF .STATUS THEN STR$COPY_DX (FSPEC, .FSPEC_A)
+    ELSE STR$COPY_DX (FSPEC, %ASCID'WATCHER_CONFIG');
+    FAB [FAB$L_FNA] = .FSPEC [DSC$A_POINTER];
+    FAB [FAB$B_FNS] = MIN (.FSPEC [DSC$W_LENGTH], 255);
+
+    STATUS = (ACTUALCOUNT () GTR 1);
+    IF .STATUS THEN STATUS = (.DFSPEC_A NEQA 0);
+    IF .STATUS THEN STR$COPY_DX (DFSPEC, .DFSPEC_A)
+    ELSE STR$COPY_DX (DFSPEC, %ASCID'SYS$DISK:[].WCFG');
+    FAB [FAB$L_DNA] = .DFSPEC [DSC$A_POINTER];
+    FAB [FAB$B_DNS] = MIN (.DFSPEC [DSC$W_LENGTH], 255);
+
+    STATUS = $OPEN (FAB=FAB);
+
+    STR$FREE1_DX (FSPEC);
+    STR$FREE1_DX (DFSPEC);
+
+    IF NOT .STATUS THEN RETURN .STATUS;
+    IF ACTUALCOUNT () GTR 2 THEN
+    	IF .RSPEC_A NEQA 0 THEN
+    	    STR$COPY_R (.RSPEC_A, %REF (.NAM [NAM$B_RSL]), RSPEC);
+
+    STATUS = $CONNECT (RAB=RAB);
+    IF NOT .STATUS THEN
+    BEGIN
+    	$CLOSE (FAB=FAB);
+    	RETURN .STATUS;
+    END;
+
+    RAB [RAB$W_USZ] = (IF .FAB [FAB$W_MRS] EQL 0 THEN
+    	    	    	IF .XABFHC [XAB$W_LRL] EQL 0 THEN 1024
+    	    	    	    ELSE .XABFHC [XAB$W_LRL]
+    	    	    	ELSE .FAB [FAB$W_MRS]);
+
+    STATUS = LIB$GET_VM (%REF (.RAB [RAB$W_USZ]), RAB [RAB$L_UBF]);
+    IF NOT .STATUS THEN
+    BEGIN
+    	$CLOSE (FAB=FAB);
+    	RETURN .STATUS;
+    END;
+
+    WHILE (STATUS = $GET (RAB=RAB)) DO
+    BEGIN
+    	BIND
+    	    RBF = .RAB [RAB$L_UBF] : VECTOR [,LONG];
+
+    	SELECTONE .RBF [0] OF
+    	SET
+    	    [CFG_K_GBL] :
+    	    	BEGIN
+    	    	    CH$MOVE (.RAB [RAB$W_RSZ], RBF, GLOBALS);
+    	    	    IF CH$EQL (8, UPLIT (0,0), 8, GLOBALS [GBL_Q_MWINTVL],
+    	    	    	    	%CHAR (0)) THEN
+    	    	    	$BINTIM (TIMBUF=%ASCID'0 00:05:00.00',
+    	    	    	    TIMADR=GLOBALS [GBL_Q_MWINTVL]);
+    	    	END;
+    	    [CFG_K_TRM] :
+    	    	BEGIN
+    	    	    LOCAL TRM : REF TRMDEF;
+    	    	    LIB$GET_VM (%REF (TRM_S_TRMDEF), TRM);
+    	    	    CH$MOVE (TRM_S_TRMDEF, RBF, .TRM);
+    	    	    INSQUE (.TRM, .TRMQUE [QUE_L_TAIL]);
+    	    	END;
+    	    [CFG_K_EXC] :
+    	    	BEGIN
+    	    	    LOCAL EXC : REF EXCDEF;
+    	    	    LIB$GET_VM (%REF (EXC_S_EXCDEF), EXC);
+    	    	    CH$FILL (%CHAR (0), EXC_S_EXCDEF, .EXC);
+    	    	    EXC [EXC_W_IMGNAMLEN] = 1;
+    	    	    CH$WCHAR (%C'*', EXC [EXC_T_IMGNAM]);
+    	    	    CH$MOVE (.RAB [RAB$W_RSZ], RBF, .EXC);
+    	    	    GLOBALS [GBL_V_IDENTS] = .GLOBALS [GBL_V_IDENTS] OR
+    	    	    	(.EXC [EXC_L_IDENT] NEQ 0);
+    	    	    INSQUE (.EXC, .EXCQUE [QUE_L_TAIL]);
+    	    	END;
+    	    [CFG_K_OVR] :
+    	    	BEGIN
+    	    	    LOCAL OVR : REF EXCDEF;
+    	    	    LIB$GET_VM (%REF (EXC_S_EXCDEF), OVR);
+    	    	    CH$FILL (%CHAR (0), EXC_S_EXCDEF, .OVR);
+    	    	    OVR [EXC_W_IMGNAMLEN] = 1;
+    	    	    CH$WCHAR (%C'*', OVR [EXC_T_IMGNAM]);
+    	    	    CH$MOVE (.RAB [RAB$W_RSZ], RBF, .OVR);
+    	    	    GLOBALS [GBL_V_IDENTS] = .GLOBALS [GBL_V_IDENTS] OR
+    	    	    	(.OVR [EXC_L_IDENT] NEQ 0);
+    	    	    INSQUE (.OVR, .OVRQUE [QUE_L_TAIL]);
+    	    	END;
+    	    [CFG_K_DFLT] :
+    	    	IF DEFAULTS NEQA 0 THEN
+    	    	    CH$MOVE (.RAB [RAB$W_RSZ], RBF, DEFAULTS);
+    	    [OTHERWISE] :;
+    	TES;
+
+    END;
+
+    LIB$FREE_VM (%REF (.RAB [RAB$W_USZ]), RAB [RAB$L_UBF]);
+    $DISCONNECT (RAB=RAB);
+    $CLOSE (FAB=FAB);
+
+    SS$_NORMAL
+
+END; ! LOAD_CONFIG
+
+%SBTTL 'SAVE_CONFIG'
+GLOBAL ROUTINE SAVE_CONFIG (FSPEC_A, RSPEC_A) = 
+BEGIN
+!++
+! FUNCTIONAL DESCRIPTION:
+!
+!   Saves a WATCHER configuration.
+!
+! RETURNS:  	cond_value, longword (unsigned), write only, by value
+!
+! PROTOTYPE:
+!
+!   SAVE_CONFIG filespec [,resspec]
+!
+! IMPLICIT INPUTS:  None.
+!
+! IMPLICIT OUTPUTS: None.
+!
+! COMPLETION CODES:
+!
+!   SS$_NORMAL:	    	normal successful completion.
+!
+! SIDE EFFECTS:
+!
+!   None.
+!--
+    BUILTIN
+    	ACTUALCOUNT;
+
+    LOCAL
+    	FAB 	: $FAB_DECL,
+    	RAB 	: $RAB_DECL,
+    	NAM 	: $NAM_DECL,
+    	FSPEC	: BLOCK [DSC$K_S_BLN,BYTE],
+    	RSPEC	: VECTOR [255,BYTE],
+    	STATUS;
+
+    $INIT_DYNDESC (FSPEC);
+    $FAB_INIT (FAB=FAB, FAC=PUT, MRS=0, RFM=VAR, NAM=NAM,
+    	DNM='SYS$DISK:[].WCFG');
+    $RAB_INIT (RAB=RAB, FAB=FAB);
+    $NAM_INIT (NAM=NAM, RSA=RSPEC, RSS=%ALLOCATION (RSPEC));
+
+    STR$COPY_DX (FSPEC, .FSPEC_A);
+    FAB [FAB$L_FNA] = .FSPEC [DSC$A_POINTER];
+    FAB [FAB$B_FNS] = MIN (.FSPEC [DSC$W_LENGTH], 255);
+
+    STATUS = $CREATE (FAB=FAB);
+    STR$FREE1_DX (FSPEC);
+    IF NOT .STATUS THEN RETURN .STATUS;
+
+    IF ACTUALCOUNT () GTR 1 THEN
+    	IF .RSPEC_A NEQA 0 THEN
+    	    STR$COPY_R (.RSPEC_A, %REF (.NAM [NAM$B_RSL]), RSPEC);
+
+    STATUS = $CONNECT (RAB=RAB);
+    IF NOT .STATUS THEN
+    BEGIN
+    	$CLOSE (FAB=FAB);
+    	RETURN .STATUS;
+    END;
+
+    RAB [RAB$W_RSZ] = GBL_S_GBLDEF;
+    RAB [RAB$L_RBF] = GLOBALS;
+    GLOBALS [GBL_L_RECTYPE] = CFG_K_GBL;
+    STATUS = $PUT (RAB=RAB);
+    IF .STATUS THEN
+    BEGIN
+    	LOCAL
+    	    TRM	    : REF TRMDEF,
+    	    LAST;
+
+    	LAST = .TRMQUE [QUE_L_TAIL];
+    	WHILE NOT REMQUE (.TRMQUE [QUE_L_HEAD], TRM) DO
+    	BEGIN
+    	    TRM [TRM_L_FLINK] = CFG_K_TRM;
+    	    RAB [RAB$W_RSZ] = TRM_S_TRMDEF;
+    	    RAB [RAB$L_RBF] = .TRM;
+    	    STATUS = $PUT (RAB=RAB);
+    	    INSQUE (.TRM, .TRMQUE [QUE_L_TAIL]);
+    	    IF .TRM EQLA .LAST THEN EXITLOOP;
+    	END;
+    END;
+
+    IF .STATUS THEN
+    BEGIN
+    	LOCAL
+    	    EXC	    : REF EXCDEF,
+    	    LAST;
+
+    	LAST = .EXCQUE [QUE_L_TAIL];
+    	WHILE NOT REMQUE (.EXCQUE [QUE_L_HEAD], EXC) DO
+    	BEGIN
+    	    EXC [EXC_L_FLINK] = CFG_K_EXC;
+    	    RAB [RAB$W_RSZ] = EXC_S_EXCDEF;
+    	    RAB [RAB$L_RBF] = .EXC;
+    	    STATUS = $PUT (RAB=RAB);
+    	    INSQUE (.EXC, .EXCQUE [QUE_L_TAIL]);
+    	    IF .EXC EQLA .LAST THEN EXITLOOP;
+    	END;
+    END;
+
+    IF .STATUS THEN
+    BEGIN
+    	LOCAL
+    	    OVR	    : REF EXCDEF,
+    	    LAST;
+
+    	LAST = .OVRQUE [QUE_L_TAIL];
+    	WHILE NOT REMQUE (.OVRQUE [QUE_L_HEAD], OVR) DO
+    	BEGIN
+    	    OVR [EXC_L_FLINK] = CFG_K_OVR;
+    	    RAB [RAB$W_RSZ] = EXC_S_EXCDEF;
+    	    RAB [RAB$L_RBF] = .OVR;
+    	    STATUS = $PUT (RAB=RAB);
+    	    INSQUE (.OVR, .OVRQUE [QUE_L_TAIL]);
+    	    IF .OVR EQLA .LAST THEN EXITLOOP;
+    	END;
+    END;
+
+    IF .STATUS THEN
+    BEGIN
+    	DEFAULTS [DFLT_L_CFGCODE] = CFG_K_DFLT;
+    	RAB [RAB$W_RSZ] = DFLT_S_DFLTDEF;
+    	RAB [RAB$L_RBF] = DEFAULTS;
+    	STATUS = $PUT (RAB=RAB);
+    END;
+
+    $DISCONNECT (RAB=RAB);
+    $CLOSE (FAB=FAB);
+
+    SS$_NORMAL
+
+END; ! SAVE_CONFIG
+
+END
+ELUDOM

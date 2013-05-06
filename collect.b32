@@ -1,0 +1,353 @@
+%TITLE 'COLLECT'
+MODULE COLLECT (IDENT='V1.4-3') =
+BEGIN
+!++
+! FACILITY: 	    WATCHER
+!
+! ABSTRACT: 	    Routines for collecting process information
+!
+! MODULE DESCRIPTION:
+!
+!   This module contains routines for collecting process information.
+!
+! AUTHOR:   	    M. Madison
+!
+! Copyright (c) 2008, Matthew Madison.
+!
+! All rights reserved.
+!
+! Redistribution and use in source and binary forms, with or without
+! modification, are permitted provided that the following conditions
+! are met:
+!
+!     * Redistributions of source code must retain the above
+!       copyright notice, this list of conditions and the following
+!       disclaimer.
+!     * Redistributions in binary form must reproduce the above
+!       copyright notice, this list of conditions and the following
+!       disclaimer in the documentation and/or other materials provided
+!       with the distribution.
+!     * Neither the name of the copyright owner nor the names of any
+!       other contributors may be used to endorse or promote products
+!       derived from this software without specific prior written
+!       permission.
+!
+! THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS
+! "AS IS" AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT
+! LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR
+! A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT
+! OWNER OR CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL,
+! SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT
+! LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE,
+! DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY
+! THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
+! (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
+! OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+!
+! CREATION DATE:    15-MAR-1990
+!
+! MODIFICATION HISTORY:
+!
+!   15-MAR-1990	V1.0	Madison	    Initial coding.
+!   21-MAR-1990	V1.0-1	Madison	    Add DECw support.
+!   27-APR-1990	V1.0-2	Madison	    Fix no-SCSNODE bug.
+!   12-NOV-1990	V1.1	Madison	    Add trace support.
+!   13-NOV-1990	V1.1-1	Madison	    Handle suspended processes better.
+!   03-JAN-1991	V1.2	Madison	    Use JPI$_RIGHTSLIST with VMS V5.4 or later.
+!   07-APR-1992	V1.3	Madison	    Support IMGNAM.
+!   20-MAR-1993	V1.3-1	Madison	    Fix support for forced exits.
+!   15-JUL-1997	V1.4	Madison	    Fake up ACCPORNAM info for DECwindows displays.
+!   17-JUL-1997	V1.4-1	Madison	    Assume VAX/VMS V5.4 or later.
+!   05-MAR-2000	V1.4-2	Madison	    Use private memory allocation routines.
+!   06-SEP-2010	V1.4-3	Sneddon	    Updated license to BSD at request of M. Madison.
+!--
+
+    LIBRARY 'SYS$LIBRARY:STARLET';
+    LIBRARY 'WATCHER';
+    LIBRARY 'WATCHER_PRIVATE';
+
+%IF NOT %DECLARED (%QUOTE JPI$M_NO_TARGET_INSWAP) %THEN
+    LITERAL
+    	JPI$M_NO_TARGET_INSWAP	    = 1,
+    	JPI$_GETJPI_CONTROL_FLAGS   = -2,
+    	JPI$_TT_PHYDEVNAM   	    = 812,
+    	JPI$_TT_ACCPORNAM   	    = 813;
+%FI
+
+    FORWARD ROUTINE
+    	COLLECT_PROCESS_INFO;
+
+    EXTERNAL ROUTINE
+    	DECW_DISPLAY,
+    	DECW_DISPLAY_INFO,
+    	MEM_GETID, MEM_GETPRC, MEM_FREEPRC;
+
+    EXTERNAL
+    	GLOBALS	    : GBLDEF,
+    	PGLOBALS    : PGBLDEF;
+
+%SBTTL 'COLLECT_PROCESS_INFO'
+GLOBAL ROUTINE COLLECT_PROCESS_INFO (PRCQUE_A) = 
+BEGIN
+!++
+! FUNCTIONAL DESCRIPTION:
+!
+!   Collection routine called by WATCHER.
+!   Suspended processes are skipped entirely, since pertinent information
+!   about them cannot be obtained.
+!
+! RETURNS:  	cond_value, longword (unsigned), write only, by value
+!
+! PROTOTYPE:
+!
+!   COLLECT_PROCESS_INFO  prcque
+!
+! IMPLICIT INPUTS:  None.
+!
+! IMPLICIT OUTPUTS: None.
+!
+! COMPLETION CODES:
+!
+!   SS$_NORMAL:	    	normal successful completion.
+!
+! SIDE EFFECTS:
+!
+!   None.
+!--
+    BIND
+    	PRCQUE	= .PRCQUE_A 	: QUEDEF;
+
+    LOCAL
+    	TMPP	: PRCDEF,
+    	RLVEC	: VECTOR [256,LONG],
+    	RLVLEN	: ALIAS WORD,
+    	P   	: REF PRCDEF,
+    	JPILST	: $ITMLST_DECL (ITEMS=15),
+    	DVILSTA	: $ITMLST_DECL (ITEMS=2),
+    	DVILSTB	: $ITMLST_DECL (ITEMS=1),
+    	SUBPQUE	: QUEDEF,
+    	DWDISP	: BLOCK [DSC$K_S_BLN,BYTE],
+    	DIOCT	: ALIAS,
+    	BIOCT	: ALIAS,
+    	MASTER	: ALIAS,
+    	PROCESS_STATUS : ALIAS,
+    	JPIFLAGS : ALIAS,
+    	SRCHPID,
+    	MODE,
+    	CP,
+    	STATUS;
+
+    INIT_DYNDESC (DWDISP);
+    INIT_QUEUE (SUBPQUE);
+
+    TRACE (DBG_M_COLLECT, 'COLLECT: --- Starting collection pass ---');
+
+    JPIFLAGS = (IF .GLOBALS [GBL_V_NOINSWAP] THEN JPI$M_NO_TARGET_INSWAP ELSE 0);
+
+    $ITMLST_INIT (ITMLST=JPILST,
+    	(ITMCOD=JPI$_GETJPI_CONTROL_FLAGS, BUFSIZ=%ALLOCATION (JPIFLAGS),
+    	    	 BUFADR=JPIFLAGS),
+    	(ITMCOD=JPI$_STS, BUFADR=PROCESS_STATUS,                       !pcb
+    	    	    BUFSIZ=%ALLOCATION (PROCESS_STATUS)),
+    	(ITMCOD=JPI$_MODE, BUFADR=MODE, BUFSIZ=%ALLOCATION (MODE)),    !pcb
+    	(ITMCOD=JPI$_PID, BUFADR=TMPP [PRC_L_PID], BUFSIZ=4),          !pcb
+    	(ITMCOD=JPI$_USERNAME, BUFADR=TMPP [PRC_T_USRNAM],             !ctl
+    	    BUFSIZ=PRC_S_USRNAM, RETLEN=TMPP [PRC_W_USRLEN]),
+    	(ITMCOD=JPI$_TT_PHYDEVNAM, BUFADR=TMPP [PRC_T_DEVNAM],
+    	    BUFSIZ=PRC_S_DEVNAM, RETLEN=TMPP [PRC_W_DEVLEN]),
+    	(ITMCOD=JPI$_IMAGNAME, BUFADR=TMPP [PRC_T_IMGNAM],  	       !ctl
+    	    BUFSIZ=PRC_S_IMGNAM, RETLEN=TMPP [PRC_W_IMGLEN]),
+    	(ITMCOD=JPI$_DIRIO, BUFADR=DIOCT, BUFSIZ=%ALLOCATION (DIOCT)), !phd
+    	(ITMCOD=JPI$_BUFIO, BUFADR=BIOCT, BUFSIZ=%ALLOCATION (BIOCT)), !phd
+    	(ITMCOD=JPI$_MASTER_PID, BUFADR=MASTER, BUFSIZ=%ALLOCATION (MASTER)), !pcb
+    	(ITMCOD=JPI$_UIC, BUFADR=TMPP [PRC_L_UIC], BUFSIZ=4),	       !pcb
+    	(ITMCOD=JPI$_CPUTIM, BUFADR=TMPP [PRC_L_CPU], BUFSIZ=4),       !phd
+    	(ITMCOD=JPI$_PROCPRIV, BUFADR=TMPP [PRC_Q_PRIVS], BUFSIZ=8),   !ctl
+    	(ITMCOD=JPI$_TT_ACCPORNAM, BUFSIZ=PRC_S_ACCNAM,
+    	    BUFADR=TMPP [PRC_T_ACCNAM], RETLEN=TMPP [PRC_W_ACCLEN]),
+    	(ITMCOD=JPI$_RIGHTSLIST, BUFSIZ=%ALLOCATION (RLVEC),
+    	    BUFADR=RLVEC, RETLEN=RLVLEN));
+
+    $ITMLST_INIT (ITMLST=DVILSTA,
+    	(ITMCOD=DVI$_DEVCHAR, BUFSIZ=4, BUFADR=TMPP [PRC_L_TTDEVCHR]),
+    	(ITMCOD=DVI$_OPCNT, BUFSIZ=4, BUFADR=TMPP [PRC_L_TIOCT]));
+    $ITMLST_INIT (ITMLST=DVILSTB,
+    	(ITMCOD=DVI$_OPCNT, BUFSIZ=4, BUFADR=TMPP [PRC_L_TIOCT]));
+
+    SRCHPID = -1;
+    CH$FILL (%CHAR (0), PRC_S_PRCDEF, TMPP);
+    WHILE 1 DO
+    BEGIN
+    	STATUS = $GETJPIW (PIDADR=SRCHPID, ITMLST=JPILST);
+    	IF NOT .STATUS AND .STATUS NEQ SS$_SUSPENDED THEN EXITLOOP;
+    	IF .STATUS THEN
+    	BEGIN
+    	    CP = CH$FIND_CH (.TMPP [PRC_W_USRLEN], TMPP [PRC_T_USRNAM], %C' ');
+    	    IF NOT CH$FAIL (.CP) THEN
+    	    	TMPP [PRC_W_USRLEN] = CH$DIFF (.CP, TMPP [PRC_T_USRNAM]);
+
+    	    CP = CH$FIND_CH (.TMPP [PRC_W_IMGLEN], TMPP [PRC_T_IMGNAM], %C' ');
+    	    IF NOT CH$FAIL (.CP) THEN
+    	    	TMPP [PRC_W_IMGLEN] = CH$DIFF (.CP, TMPP [PRC_T_IMGNAM]);
+    	    TRACE (DBG_M_COLLECT, %STRING ('COLLECT: process !XL,',
+    	    	    ' username !AD, term !AD, image !AD'),
+    	    	.TMPP [PRC_L_PID], .TMPP [PRC_W_USRLEN], TMPP [PRC_T_USRNAM],
+    	    	.TMPP [PRC_W_DEVLEN], TMPP [PRC_T_DEVNAM],
+    	    	.TMPP [PRC_W_IMGLEN], TMPP [PRC_T_IMGNAM]);
+
+    	    IF .GLOBALS [GBL_V_DECW] AND .MASTER EQL .TMPP [PRC_L_PID] THEN
+    	    	IF (.MODE EQL JPI$K_INTERACTIVE AND    ! Ignore DECwindows displays on NTY devices
+    	    	    	(.TMPP [PRC_W_DEVLEN] LSS 2 OR CH$NEQ (2, UPLIT ('_N'), 2, TMPP [PRC_T_DEVNAM])))
+    	    	    	OR .MODE EQL JPI$K_OTHER THEN
+    	    	    IF DECW_DISPLAY (.TMPP [PRC_L_PID], DWDISP,
+    	    	    	    (IF .MODE EQL JPI$K_INTERACTIVE THEN PSL$C_EXEC
+    	    	    	    ELSE PSL$C_USER)) THEN
+    	    	    	IF .DWDISP [DSC$W_LENGTH] NEQ 0 THEN
+    	    BEGIN
+    	    	LOCAL apdsc : BLOCK [DSC$K_S_BLN,BYTE] PRESET (
+    	    	    	    [DSC$B_DTYPE] = DSC$K_DTYPE_T,
+    	    	    	    [DSC$B_CLASS] = DSC$K_CLASS_S,
+    	    	    	    [DSC$W_LENGTH] = PRC_S_ACCNAM,
+    	    	    	    [DSC$A_POINTER] = TMPP [PRC_T_ACCNAM]);
+    	    	IF NOT DECW_DISPLAY_INFO (dwdisp, apdsc, TMPP [PRC_W_ACCLEN]) THEN
+    	    	    TMPP [PRC_W_ACCLEN] = 0;
+    	    	TMPP [PRC_W_DEVLEN] = MIN (.DWDISP [DSC$W_LENGTH]+1, PRC_S_DEVNAM);
+    	    	CH$MOVE (.TMPP [PRC_W_DEVLEN]-1, .DWDISP [DSC$A_POINTER],
+    	    	    TMPP [PRC_T_DEVNAM]+1);
+    	    	CH$WCHAR ('_', TMPP [PRC_T_DEVNAM]);
+    	    	TMPP [PRC_V_DECW] = 1;
+    	    	IF .MODE NEQ JPI$K_INTERACTIVE THEN
+    	    	BEGIN
+    	    	    MODE = JPI$K_INTERACTIVE;
+    	    	    TMPP [PRC_V_FAKE] = 1;
+    	    	END;
+    	    	TRACE (DBG_M_COLLECT, '         (DECwindows process, ACCPORNAM=!AD)',
+    	    	    	    .TMPP [PRC_W_ACCLEN], TMPP [PRC_T_ACCNAM]);
+    	    END;
+
+    	    IF (.MODE EQL JPI$K_INTERACTIVE AND NOT CH$EQL (7, UPLIT ('<login>'),
+    	    	    .TMPP [PRC_W_USRLEN], TMPP [PRC_T_USRNAM]) AND
+    	    	    .TMPP [PRC_W_DEVLEN] NEQ 0) OR
+    	    	    (.MASTER NEQ 0 AND .MASTER NEQ .TMPP [PRC_L_PID]) THEN
+    	    BEGIN
+    	    	TRACE (DBG_M_COLLECT, '         -- Qualifies as interactive.');
+    	    	TMPP [PRC_L_PIOCT] = .BIOCT + .DIOCT;
+    	    	IF .MASTER EQL .TMPP [PRC_L_PID] THEN
+    	    	BEGIN
+    	    	    LOCAL S : BLOCK [DSC$K_S_BLN,BYTE] PRESET (
+    	    	    	    [DSC$B_DTYPE] = DSC$K_DTYPE_T,
+    	    	    	    [DSC$B_CLASS] = DSC$K_CLASS_S,
+    	    	    	    [DSC$W_LENGTH] = .TMPP [PRC_W_DEVLEN],
+    	    	    	    [DSC$A_POINTER] = TMPP [PRC_T_DEVNAM]);
+    	    	    IF .TMPP [PRC_V_DECW] THEN
+    	    	    	$GETDVIW (DEVNAM=S, ITMLST=DVILSTB)
+    	    	    ELSE
+    	    	    	$GETDVIW (DEVNAM=S, ITMLST=DVILSTA);
+    	    	END;
+
+    	    	IF .MASTER EQL .TMPP [PRC_L_PID] AND .GLOBALS [GBL_V_IDENTS] THEN
+    	    	BEGIN
+    	    	    LOCAL IDP : REF IDDEF;
+    	    	    TRACE (DBG_M_COLLECT,
+    	    	    	'         -- $GETJPI says prc holds !UL rights ids', .RLVLEN/8);
+    	    	    IDP = 0;
+    	    	    INCR I FROM 0 TO (.RLVLEN/4)-1 BY 2 DO
+    	    	    BEGIN
+    	    	    	 IF .IDP EQLA 0 THEN
+    	    	    	 BEGIN
+    	    	    	    MEM_GETID (IDP);
+    	    	    	    IDP [ID_L_FLINK] = .TMPP [PRC_A_IDLIST];
+    	    	    	    TMPP [PRC_A_IDLIST] = .IDP;
+    	    	    	    IDP [ID_L_COUNT] = 0;
+    	    	    	END;
+    	    	    	BEGIN
+    	    	    	    BIND IDARR = IDP [ID_X_IDLIST] : VECTOR [,LONG];
+    	    	    	    IDARR [.IDP [ID_L_COUNT]] = .RLVEC [.I];
+    	    	    	    IDP [ID_L_COUNT] = .IDP [ID_L_COUNT] + 1;
+    	    	    	    IF .IDP [ID_L_COUNT] EQL ID_K_MAXIDS THEN
+    	    	    	       IDP = 0;
+    	    	    	END;
+    	    	    END;
+    	    	END;
+
+    	    	MEM_GETPRC (P);
+
+    	    	CH$MOVE (PRC_S_PRCDEF, TMPP, .P);
+    	    	IF .MASTER EQL .TMPP [PRC_L_PID] THEN
+    	    	BEGIN
+    	    	TRACE (DBG_M_COLLECT, '         -- Master process of job.');
+    	    	    IF .PGLOBALS [PGBL_W_SCSLEN] NEQ 0 THEN
+    	    	    BEGIN
+    	    	    	P [PRC_W_DEVLEN] = MIN (PRC_S_DEVNAM,
+    	    	    	    .TMPP [PRC_W_DEVLEN] + .PGLOBALS [PGBL_W_SCSLEN]);
+    	    	    	CH$COPY (.PGLOBALS [PGBL_W_SCSLEN],
+    	    	    	    PGLOBALS [PGBL_T_SCSNAM], 1, UPLIT ('$'),
+    	    	    	    .TMPP [PRC_W_DEVLEN]-1,
+    	    	    	    CH$PLUS (TMPP [PRC_T_DEVNAM], 1), %C' ',
+    	    	    	    .P [PRC_W_DEVLEN], P [PRC_T_DEVNAM]);
+    	    	    END
+    	    	    ELSE
+    	    	    BEGIN
+    	    	    	P [PRC_W_DEVLEN] = MIN (PRC_S_DEVNAM,
+    	    	    	    .TMPP [PRC_W_DEVLEN]-1);
+    	    	    	CH$MOVE (.P [PRC_W_DEVLEN],
+    	    	    	    CH$PLUS (TMPP [PRC_T_DEVNAM], 1), P [PRC_T_DEVNAM]);
+    	    	    END;
+    	    	    INSQUE (.P, .PRCQUE [QUE_L_TAIL]);
+    	    	END
+    	    	ELSE
+    	    	BEGIN
+    	    	TRACE (DBG_M_COLLECT, '         -- Subprocess of !XL.', .MASTER);
+    	    	    P [PRC_L_PID] = .MASTER;
+    	    	    INSQUE (.P, .SUBPQUE [QUE_L_TAIL]);
+    	    	END;
+    	    END;
+    	END;
+    	CH$FILL (%CHAR (0), PRC_S_PRCDEF, TMPP);
+    END;
+
+    IF .STATUS NEQ SS$_NOMOREPROC THEN
+    	TRACE (DBG_M_COLLECT, 'COLLECT: Final status from $GETJPI was !XL.',
+    	    .STATUS);
+
+    TRACE (DBG_M_COLLECT, 'COLLECT: Scanning subprocess list...');
+
+    WHILE NOT REMQUE (.SUBPQUE [QUE_L_HEAD], P) DO
+    BEGIN
+    	LOCAL P2 : REF PRCDEF;
+    	P2 = .PRCQUE [QUE_L_HEAD];
+    	WHILE .P2 NEQA PRCQUE [QUE_L_HEAD] DO
+    	BEGIN
+    	    IF .P [PRC_L_PID] EQL .P2 [PRC_L_PID] THEN
+    	    BEGIN
+    	    	TRACE (DBG_M_COLLECT, '         -- Add !XL''s counts to !XL''s',
+    	    	    .P [PRC_L_PID], .P2 [PRC_L_PID]);
+    	    	P2 [PRC_L_PIOCT] = .P2 [PRC_L_PIOCT] + .P [PRC_L_PIOCT];
+    	    	P2 [PRC_L_CPU] = .P2 [PRC_L_CPU] + .P [PRC_L_CPU];
+    	    	IF .P2 [PRC_W_IMGLEN] EQL 0 THEN
+    	    	    IF .P [PRC_W_IMGLEN] NEQ 0 THEN
+    	    	    BEGIN
+    	    	    	TRACE (DBG_M_COLLECT, %STRING ('         -- ',
+    	    	    	    'and setting image name to !AD'),
+    	    	    	    .P [PRC_W_IMGLEN], P [PRC_T_IMGNAM]);
+    	    	    	CH$MOVE (.P [PRC_W_IMGLEN], P [PRC_T_IMGNAM],
+    	    	    	    P2 [PRC_T_IMGNAM]);
+    	    	    	P2 [PRC_W_IMGLEN] = .P [PRC_W_IMGLEN];
+    	    	    END;
+    	    	EXITLOOP;
+    	    END;
+    	    P2 = .P2 [PRC_L_FLINK];
+    	END;
+    	MEM_FREEPRC (P);
+    END;
+
+    TRACE (DBG_M_COLLECT, 'COLLECT: --- End of collection pass ---');
+
+    FREE_STRINGS (DWDISP);
+
+    SS$_NORMAL
+
+END; ! COLLECT_PROCESS_INFO
+
+END
+ELUDOM

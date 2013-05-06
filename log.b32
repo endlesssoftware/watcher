@@ -1,0 +1,339 @@
+%TITLE 'LOG'
+MODULE LOG (IDENT='V1.2-1') =
+BEGIN
+!++
+! FACILITY: 	    WATCHER
+!
+! ABSTRACT: 	    Event logging routines.
+!
+! MODULE DESCRIPTION:
+!
+!   This module contains routines for logging events and trace information.
+!
+! AUTHOR:   	    M. Madison
+!
+! Copyright (c) 2010, Matthew Madison.
+!
+! All rights reserved.
+!
+! Redistribution and use in source and binary forms, with or without
+! modification, are permitted provided that the following conditions
+! are met:
+!
+!     * Redistributions of source code must retain the above
+!       copyright notice, this list of conditions and the following
+!       disclaimer.
+!     * Redistributions in binary form must reproduce the above
+!       copyright notice, this list of conditions and the following
+!       disclaimer in the documentation and/or other materials provided
+!       with the distribution.
+!     * Neither the name of the copyright owner nor the names of any
+!       other contributors may be used to endorse or promote products
+!       derived from this software without specific prior written
+!       permission.
+!
+! THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS
+! "AS IS" AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT
+! LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR
+! A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT
+! OWNER OR CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL,
+! SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT
+! LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE,
+! DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY
+! THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
+! (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
+! OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+!
+! CREATION DATE:    19-MAR-1990
+!
+! MODIFICATION HISTORY:
+!
+!   19-MAR-1990	V1.0	Madison	    Initial coding.
+!   26-MAR-1991	V1.1	Madison	    Add FLUSH_LOG routine. (mnk@hac)
+!   07-APR-1992	V1.2	Madison	    Add NOACTION support. (No OPCOM msgs)
+!   06-SEP-2010 V1.2-1  Sneddon     Updated license to BSD at request of M. Madison.
+!--
+    LIBRARY 'SYS$LIBRARY:STARLET';
+    LIBRARY 'WATCHER';
+    LIBRARY 'WATCHER_PRIVATE';
+
+    FORWARD ROUTINE
+    	INIT_LOG,
+    	CLOSE_LOG,
+    	LOG_PUT_OUTPUT,
+    	TRACE_PUT_OUTPUT,
+    	FLUSH_LOG;
+
+    EXTERNAL ROUTINE
+    	G_HAT (LIB$SYS_FAO);
+
+    LITERAL
+    	OPCBUF_SIZE = 256+8;
+
+    OWN
+    	LOGFAB	: $FAB_DECL,
+    	LOGRAB	: $RAB_DECL,
+    	TRCFAB	: $FAB_DECL,
+    	TRCRAB	: $RAB_DECL,
+    	OPCBUF	: BLOCK [OPCBUF_SIZE,BYTE],
+    	OPCDSC	: BLOCK [DSC$K_S_BLN,BYTE],
+    	BUFDSC	: BLOCK [DSC$K_S_BLN,BYTE],
+    	LOGCHG	: INITIAL (0),
+    	TRCCHG	: INITIAL (0);
+
+    EXTERNAL
+    	GLOBALS	: GBLDEF;
+
+%SBTTL 'INIT_LOG'
+GLOBAL ROUTINE INIT_LOG = 
+BEGIN
+!++
+! FUNCTIONAL DESCRIPTION:
+!
+!   Initializes the logging output.
+!
+! RETURNS:  	cond_value, longword (unsigned), write only, by value
+!
+! PROTOTYPE:
+!
+!   INIT_LOG
+!
+! IMPLICIT INPUTS:  None.
+!
+! IMPLICIT OUTPUTS: None.
+!
+! COMPLETION CODES:
+!
+!   SS$_NORMAL:	    	normal successful completion.
+!
+! SIDE EFFECTS:
+!
+!   None.
+!--
+    LOCAL
+    	STATUS;
+
+    BUFDSC [DSC$B_DTYPE] = DSC$K_DTYPE_T;
+    BUFDSC [DSC$B_CLASS] = DSC$K_CLASS_S;
+    BUFDSC [DSC$W_LENGTH] = OPCBUF_SIZE-8;
+    BUFDSC [DSC$A_POINTER] = OPCBUF [OPC$L_MS_TEXT];
+
+    IF .GLOBALS [GBL_V_OPERATOR] THEN
+    BEGIN
+    	OPCBUF [OPC$B_MS_TYPE] = OPC$_RQ_RQST;
+    	CH$MOVE (3, GLOBALS [GBL_L_OPERATOR], OPCBUF [OPC$B_MS_TARGET]);
+    	OPCBUF [OPC$L_MS_RQSTID] = 0;
+    	OPCDSC [DSC$B_DTYPE] = DSC$K_DTYPE_T;
+    	OPCDSC [DSC$B_CLASS] = DSC$K_CLASS_S;
+    	OPCDSC [DSC$A_POINTER] = OPCBUF;
+    	OPCDSC [DSC$W_LENGTH] = 8;
+    END;
+
+    IF .GLOBALS [GBL_V_LOGFILE] THEN
+    BEGIN
+    	$FAB_INIT (FAB=LOGFAB, FNA=GLOBALS [GBL_T_LOGFNAM],
+    	    FNS=.GLOBALS [GBL_W_LOGFLEN], RAT=CR,
+    	    DNM='WATCHER_DIR:WATCHER.LOG',
+    	    MRS=0, FAC=PUT, SHR=SHRPUT);
+    	STATUS = $CREATE (FAB=LOGFAB);
+    	IF NOT .STATUS THEN SIGNAL (.STATUS, .LOGFAB [FAB$L_STV]);
+    	$RAB_INIT (RAB=LOGRAB, FAB=LOGFAB, RBF=OPCBUF [OPC$L_MS_TEXT]);
+    	STATUS = $CONNECT (RAB=LOGRAB);
+    	IF NOT .STATUS THEN SIGNAL (.STATUS, .LOGRAB [RAB$L_STV]);
+    END;
+
+    IF .GLOBALS [GBL_V_TRACE] THEN
+    BEGIN
+    	$FAB_INIT (FAB=TRCFAB, FNM='WATCHER_TRACE',
+    	    DNM='WATCHER_DIR:.LOG', RAT=CR,
+    	    MRS=0, FAC=PUT, SHR=SHRPUT);
+    	STATUS = $CREATE (FAB=TRCFAB);
+    	IF NOT .STATUS THEN SIGNAL (.STATUS, .TRCFAB [FAB$L_STV]);
+    	$RAB_INIT (RAB=TRCRAB, FAB=TRCFAB);
+    	STATUS = $CONNECT (RAB=TRCRAB);
+    	IF NOT .STATUS THEN SIGNAL (.STATUS, .TRCRAB [RAB$L_STV]);
+    END;
+
+    SS$_NORMAL
+
+END; ! INIT_LOG
+
+%SBTTL 'CLOSE_LOG'
+GLOBAL ROUTINE CLOSE_LOG = 
+BEGIN
+!++
+! FUNCTIONAL DESCRIPTION:
+!
+!   Closes down the logging output.
+!
+! RETURNS:  	cond_value, longword (unsigned), write only, by value
+!
+! PROTOTYPE:
+!
+!   CLOSE_LOG
+!
+! IMPLICIT INPUTS:  None.
+!
+! IMPLICIT OUTPUTS: None.
+!
+! COMPLETION CODES:
+!
+!   SS$_NORMAL:	    	normal successful completion.
+!
+! SIDE EFFECTS:
+!
+!   None.
+!--
+    LOCAL
+    	STATUS;
+
+    IF .GLOBALS [GBL_V_LOGFILE] THEN $CLOSE (FAB=LOGFAB);
+    IF .GLOBALS [GBL_V_TRACE] THEN $CLOSE (FAB=TRCFAB);
+
+    SS$_NORMAL
+
+END; ! CLOSE_LOG
+
+%SBTTL 'LOG_PUT_OUTPUT'
+GLOBAL ROUTINE LOG_PUT_OUTPUT (STR_A) = 
+BEGIN
+!++
+! FUNCTIONAL DESCRIPTION:
+!
+!   Writes a string to the log file and/or operator.   
+!
+! RETURNS:  	cond_value, longword (unsigned), write only, by value
+!
+! PROTOTYPE:
+!
+!   LOG_PUT_OUTPUT
+!
+! IMPLICIT INPUTS:  None.
+!
+! IMPLICIT OUTPUTS: None.
+!
+! COMPLETION CODES:
+!
+!   SS$_NORMAL:	    	normal successful completion.
+!
+! SIDE EFFECTS:
+!
+!   None.
+!--
+    BIND
+    	STR 	= .STR_A    : BLOCK [,BYTE];
+
+    LOCAL
+    	LEN 	: WORD;
+
+    IF .GLOBALS [GBL_V_OPERATOR] THEN
+    IF .GLOBALS [GBL_V_NOACTION] THEN
+    	TRACE (DBG_M_MAIN, 'LOG_PUT_OUTPUT: $SNDOPR prevented by NOACTION setting.')
+    ELSE
+    BEGIN
+    	LIB$SYS_FAO (%ASCID'!AS', LEN, BUFDSC, .STR_A);
+    	OPCDSC [DSC$W_LENGTH] = .LEN + 8;
+    	$SNDOPR (MSGBUF=OPCDSC);
+    END;
+
+    IF .GLOBALS [GBL_V_LOGFILE] THEN
+    BEGIN
+    	LIB$SYS_FAO (%ASCID'(!%D) !AS', LEN, BUFDSC, 0, .STR_A);
+    	LOGRAB [RAB$W_RSZ] = .LEN;
+    	$PUT (RAB=LOGRAB);
+    	LOGCHG = 1;
+    END;
+
+    SS$_NORMAL
+
+END; ! LOG_PUT_OUTPUT
+
+%SBTTL 'TRACE_PUT_OUTPUT'
+GLOBAL ROUTINE TRACE_PUT_OUTPUT (STR_A) = 
+BEGIN
+!++
+! FUNCTIONAL DESCRIPTION:
+!
+!   Writes a string to the trace file.
+!
+! RETURNS:  	cond_value, longword (unsigned), write only, by value
+!
+! PROTOTYPE:
+!
+!   TRACE_PUT_OUTPUT
+!
+! IMPLICIT INPUTS:  None.
+!
+! IMPLICIT OUTPUTS: None.
+!
+! COMPLETION CODES:
+!
+!   SS$_NORMAL:	    	normal successful completion.
+!
+! SIDE EFFECTS:
+!
+!   None.
+!--
+    LOCAL
+    	STR 	: BLOCK [DSC$K_S_BLN, BYTE];
+
+    $INIT_DYNDESC (STR);
+
+    IF .GLOBALS [GBL_V_TRACE] THEN
+    BEGIN
+    	LIB$SYS_FAO (%ASCID'(!%D) !AS', 0, STR, 0, .STR_A);
+    	TRCRAB [RAB$W_RSZ] = .STR [DSC$W_LENGTH];
+    	TRCRAB [RAB$L_RBF] = .STR [DSC$A_POINTER];
+    	$PUT (RAB=TRCRAB);
+    	FREE_STRINGS (STR);
+    	TRCCHG = 1;
+    END;
+
+    SS$_NORMAL
+
+END; ! TRACE_PUT_OUTPUT
+
+%SBTTL 'FLUSH_LOG'
+GLOBAL ROUTINE FLUSH_LOG = 
+BEGIN
+!++
+! FUNCTIONAL DESCRIPTION:
+!
+!   Issues a $FLUSH on the log and trace files.
+!
+! RETURNS:  	cond_value, longword (unsigned), write only, by value
+!
+! PROTOTYPE:
+!
+!   FLUSH_LOG
+!
+! IMPLICIT INPUTS:  None.
+!
+! IMPLICIT OUTPUTS: None.
+!
+! COMPLETION CODES:
+!
+!   SS$_NORMAL:	    	normal successful completion.
+!
+! SIDE EFFECTS:
+!
+!   None.
+!--
+
+    IF .GLOBALS [GBL_V_LOGFILE] AND .LOGCHG THEN
+    BEGIN
+    	$FLUSH (RAB=LOGRAB);
+    	LOGCHG = 0;
+    END;
+    IF .GLOBALS [GBL_V_TRACE] AND .TRCCHG THEN
+    BEGIN
+    	$FLUSH (RAB=TRCRAB);
+    	TRCCHG = 0;
+    END;
+
+    SS$_NORMAL
+
+END;  ! FLUSH_LOG
+
+END
+ELUDOM

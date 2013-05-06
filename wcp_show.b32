@@ -1,0 +1,1293 @@
+%TITLE 'WCP_SHOW'
+MODULE WCP_SHOW (IDENT='V1.7-1') =
+BEGIN
+!++
+! FACILITY: 	    WCP - WATCHER Control Program
+!
+! ABSTRACT: 	    Support routines for WCP SHOW command
+!
+! MODULE DESCRIPTION:
+!
+!   This module contains all the routines that display information
+!   for the WCP SHOW command.
+!
+! AUTHOR:   	    M. Madison
+!
+! Copyright (c) 2010, Matthew Madison.
+!
+! All rights reserved.
+!
+! Redistribution and use in source and binary forms, with or without
+! modification, are permitted provided that the following conditions
+! are met:
+!
+!     * Redistributions of source code must retain the above
+!       copyright notice, this list of conditions and the following
+!       disclaimer.
+!     * Redistributions in binary form must reproduce the above
+!       copyright notice, this list of conditions and the following
+!       disclaimer in the documentation and/or other materials provided
+!       with the distribution.
+!     * Neither the name of the copyright owner nor the names of any
+!       other contributors may be used to endorse or promote products
+!       derived from this software without specific prior written
+!       permission.
+!
+! THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS
+! "AS IS" AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT
+! LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR
+! A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT
+! OWNER OR CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL,
+! SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT
+! LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE,
+! DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY
+! THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
+! (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
+! OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+!
+! CREATION DATE:    16-NOV-1989
+!
+! MODIFICATION HISTORY:
+!
+!   16-NOV-1989	V1.0	Madison	    Initial coding.
+!   19-JAN-1990	V1.0-1	Madison	    Added TRM group display.
+!   21-MAR-1990	V1.0-2	Madison	    Added SHOW DECW.
+!   10-APR-1990	V1.0-3	Madison	    Fix bug in SHOW_EVENT_LOG.
+!   11-APR-1990	V1.1-4	Madison	    Added measurement thresholds.
+!   04-MAY-1990	V1.1-5	Madison	    Fix bug in SHOW_WATCHES.
+!   07-JAN-1991	V1.2	Madison	    Really fix SHOW_EVENT_LOG.
+!   22-MAR-1991	V1.3	Madison	    Add MULTIWARN support.
+!   19-APR-1991	V1.3-1	Madison	    Fix SHOW OVERRIDES. (kwolters@wellesley)
+!   07-APR-1992	V1.4	Madison	    Add MW interval, ACTION, IMAGE on EXC/OVER.
+!   03-FEB-1993	V1.5	Madison	    Add FORCE_EXIT.
+!   24-JUN-1994	V1.6	Madison	    Add INSWAP.
+!   17-JUL-1997	V1.7	Madison	    operator-based excludes/overrides.
+!   06-SEP-2010 V1.7-1  Sneddon     Updated license to BSD at request of M. Madison.
+!--
+    LIBRARY 'SYS$LIBRARY:STARLET';
+    LIBRARY 'WATCHER';
+    LIBRARY 'WCP';
+
+    FORWARD ROUTINE
+    	SHOW_WATCHES,
+    	SHOW_EXCLUDES,
+    	SHOW_OVERRIDES,
+    	SHOW_EVENT_LOG,
+    	SHOW_INTERVAL,
+    	SHOW_BELL,
+    	SHOW_DEBUG,
+    	SHOW_DECW,
+    	SHOW_MULTIWARN,
+    	SHOW_ACTION,
+    	SHOW_WATCH_DEFAULTS,
+    	SHOW_DAYS,
+    	SHOW_FILE,
+    	SHOW_INSWAP;
+
+    EXTERNAL ROUTINE
+    	FORMAT_PRIVS,
+    	FORMAT_TIMES,
+    	FORMAT_OPCS;
+
+    EXTERNAL
+    	TRMQUE	    : QUEDEF,
+    	EXCQUE	    : QUEDEF,
+    	OVRQUE	    : QUEDEF,
+    	GLOBALS	    : GBLDEF,
+    	DEFAULTS    : DFLTDEF,
+    	CFGFILE;
+
+%SBTTL 'SHOW_WATCHES'
+GLOBAL ROUTINE SHOW_WATCHES (OUTRTN, OUTCMD) = 
+BEGIN
+!++
+! FUNCTIONAL DESCRIPTION:
+!
+!   Displays the current list of watched terminals.
+!
+! RETURNS:  	cond_value, longword (unsigned), write only, by value
+!
+! PROTOTYPE:
+!
+!   SHOW_WATCHES
+!
+! IMPLICIT INPUTS:  None.
+!
+! IMPLICIT OUTPUTS: None.
+!
+! COMPLETION CODES:
+!
+!   SS$_NORMAL:	    	normal successful completion.
+!
+! SIDE EFFECTS:
+!
+!   None.
+!--
+    LOCAL
+    	STR 	: BLOCK [DSC$K_S_BLN,BYTE],
+    	STR2	: BLOCK [DSC$K_S_BLN,BYTE],
+    	TRM 	: REF TRMDEF,
+    	DID_ONE;
+
+    $INIT_DYNDESC (STR);
+    $INIT_DYNDESC (STR2);
+
+    IF NOT .OUTCMD AND .TRMQUE [QUE_L_HEAD] NEQA TRMQUE [QUE_L_HEAD] THEN
+    BEGIN
+    	(.OUTRTN) (%ASCID'');
+    	(.OUTRTN) (%ASCID'Watch records:');
+    END;
+
+    TRM = .TRMQUE [QUE_L_HEAD];
+    WHILE .TRM NEQA TRMQUE [QUE_L_HEAD] DO
+    BEGIN
+    	IF .OUTCMD THEN
+    	BEGIN
+    	    LIB$SYS_FAO (%ASCID'WATCH "!AD"/ACCPORNAM="!AD"-', 0, STR,
+    	    	.TRM [TRM_W_DEVLEN], TRM [TRM_T_DEVNAM],
+    	    	.TRM [TRM_W_ACCLEN], TRM [TRM_T_ACCNAM]);
+    	    (.OUTRTN) (STR);
+
+    	    LIB$SYS_FAO (%ASCID'  /GROUP="!AD"-', 0, STR,
+    	    	.TRM [TRM_W_GRPLEN], TRM [TRM_T_GRPNAM]);
+    	    (.OUTRTN) (STR);
+
+    	    IF .TRM [TRM_V_WARN] THEN
+    	    	LIB$SYS_FAO (%ASCID'  /WARN="!%T" ', 0, STR,
+    	    	    TRM [TRM_Q_WARNTIME])
+    	    ELSE
+    	    	STR$COPY_DX (STR, %ASCID'  /NOWARN ');
+
+    	    IF NOT (.TRM [TRM_V_FORCE] OR .TRM [TRM_V_DISCON] OR
+    	    	    	.TRM [TRM_V_EXIT]) THEN
+    	    	STR$APPEND (STR, %ASCID'/NOLOGOUT ')
+    	    ELSE
+    	    BEGIN
+    	    	IF .TRM [TRM_V_FORCE] THEN
+    	    	    LIB$SYS_FAO (%ASCID'/LOGOUT="!%T" ', 0, STR2,
+    	    	    	TRM [TRM_Q_FORCETIME])
+    	     	ELSE IF .TRM [TRM_V_DISCON] THEN
+    	    	    LIB$SYS_FAO (%ASCID'/DISCONNECT="!%T" ', 0, STR2,
+    	    	    	TRM [TRM_Q_FORCETIME])
+    	     	ELSE IF .TRM [TRM_V_EXIT] THEN
+    	    	    LIB$SYS_FAO (%ASCID'/FORCE_EXIT="!%T" ', 0, STR2,
+    	    	    	TRM [TRM_Q_FORCETIME]);
+    	    	STR$APPEND (STR, STR2);
+    	    END;
+
+    	    STR$APPEND (STR, %ASCID'/MEASURE=(');
+    	    DID_ONE = 0;
+    	    IF .TRM [TRM_V_CPU] THEN
+    	    BEGIN
+    	    	LIB$SYS_FAO (%ASCID'CPU=!UL', 0, STR2, .TRM [TRM_L_DCPU]);
+    	    	STR$APPEND (STR, STR2);
+    	    	DID_ONE = 1;
+    	    END;
+    	    IF .TRM [TRM_V_PIO] THEN
+    	    BEGIN
+    	    	IF .DID_ONE THEN STR$APPEND (STR, %ASCID',');
+    	    	LIB$SYS_FAO (%ASCID'PROCESS_IO=!UL', 0, STR2,
+    	    	    .TRM [TRM_L_DPIO]);
+    	    	STR$APPEND (STR, STR2);
+    	    	DID_ONE = 1;
+    	    END;
+    	    IF .TRM [TRM_V_TIO] THEN
+    	    BEGIN
+    	    	IF .DID_ONE THEN STR$APPEND (STR, %ASCID',');
+    	    	LIB$SYS_FAO (%ASCID'TERMINAL_IO=!UL', 0, STR2,
+    	    	    .TRM [TRM_L_DTIO]);
+    	    	STR$APPEND (STR, STR2);
+    	    	DID_ONE = 1;
+    	    END;
+    	    STR$APPEND (STR, %ASCID')');
+    	    (.OUTRTN) (STR);
+    	END
+    	ELSE
+    	BEGIN
+    	    (.OUTRTN) (%ASCID'');
+    	    LIB$SYS_FAO (%ASCID'  Device: !AD,  Port name: !AD', 0, STR,
+    	    	.TRM [TRM_W_DEVLEN], TRM [TRM_T_DEVNAM],
+    	    	.TRM [TRM_W_ACCLEN], TRM [TRM_T_ACCNAM]);
+    	    (.OUTRTN) (STR);
+
+    	    IF .TRM [TRM_W_GRPLEN] GTR 0 THEN
+    	    BEGIN
+    	    	LIB$SYS_FAO (%ASCID'  Terminal group name: !AD', 0, STR,
+    	    	    .TRM [TRM_W_GRPLEN], TRM [TRM_T_GRPNAM]);
+    	    	(.OUTRTN) (STR);
+    	    END;
+
+    	    IF .TRM [TRM_V_WARN] THEN
+    	    	LIB$SYS_FAO (%ASCID'  Warnings ENABLED, at !%T, ', 0, STR,
+    	    	    TRM [TRM_Q_WARNTIME])
+    	    ELSE
+    	    	STR$COPY_DX (STR, %ASCID'  Warnings DISABLED, ');
+
+    	    IF NOT (.TRM [TRM_V_FORCE] OR .TRM [TRM_V_DISCON] OR
+    	    	    	.TRM [TRM_V_EXIT]) THEN
+    	    	STR$APPEND (STR, %ASCID'Logouts DISABLED')
+    	    ELSE
+    	    BEGIN
+    	    	IF .TRM [TRM_V_FORCE] THEN
+    	    	    LIB$SYS_FAO (%ASCID'Logouts ENABLED at !%T', 0, STR2,
+    	    	    	TRM [TRM_Q_FORCETIME])
+    	     	ELSE IF .TRM [TRM_V_DISCON] THEN
+    	    	    LIB$SYS_FAO (%ASCID'Disconnects ENABLED at !%T', 0, STR2,
+    	    	    	TRM [TRM_Q_FORCETIME])
+    	     	ELSE
+    	    	    LIB$SYS_FAO (%ASCID'Forced image exits ENABLED at !%T', 0, STR2,
+    	    	    	TRM [TRM_Q_FORCETIME]);
+    	    	STR$APPEND (STR, STR2);
+    	    END;
+    	    (.OUTRTN) (STR);
+
+    	    STR$COPY_DX (STR, %ASCID'  Measuring:');
+    	    DID_ONE = 0;
+    	    IF .TRM [TRM_V_CPU] THEN
+    	    BEGIN
+    	    	LIB$SYS_FAO (%ASCID' CPU time (threshold=!UL)', 0, STR2,
+    	    	    .TRM [TRM_L_DCPU]);
+    	    	STR$APPEND (STR, STR2);
+    	    	DID_ONE = 1;
+    	    END;
+    	    IF .TRM [TRM_V_PIO] THEN
+    	    BEGIN
+    	    	IF .DID_ONE THEN STR$APPEND (STR, %ASCID',');
+    	    	LIB$SYS_FAO (%ASCID' process I/O (threshold=!UL)', 0, STR2,
+    	    	    .TRM [TRM_L_DPIO]);
+    	    	STR$APPEND (STR, STR2);
+    	    	DID_ONE = 1;
+    	    END;
+    	    IF .TRM [TRM_V_TIO] THEN
+    	    BEGIN
+    	    	IF .DID_ONE THEN STR$APPEND (STR, %ASCID',');
+    	    	LIB$SYS_FAO (%ASCID' term I/O (threshold=!UL)', 0, STR2,
+    	    	    .TRM [TRM_L_DTIO]);
+    	    	STR$APPEND (STR, STR2);
+    	    	DID_ONE = 1;
+    	    END;
+    	    (.OUTRTN) (STR);
+    	END;
+
+    	TRM = .TRM [TRM_L_FLINK];
+
+    END; ! WHILE TRM
+
+    STR$FREE1_DX (STR);
+    STR$FREE1_DX (STR2);
+
+    SS$_NORMAL
+
+END; ! SHOW_WATCHES
+
+%SBTTL 'SHOW_EXCLUDES'
+GLOBAL ROUTINE SHOW_EXCLUDES (OUTRTN, OUTCMD) = 
+BEGIN
+!++
+! FUNCTIONAL DESCRIPTION:
+!
+!   Displays EXCLUDE records.
+!
+! RETURNS:  	cond_value, longword (unsigned), write only, by value
+!
+! PROTOTYPE:
+!
+!   SHOW_EXCLUDES
+!
+! IMPLICIT INPUTS:  None.
+!
+! IMPLICIT OUTPUTS: None.
+!
+! COMPLETION CODES:
+!
+!   SS$_NORMAL:	    	normal successful completion.
+!
+! SIDE EFFECTS:
+!
+!   None.
+!--
+    LOCAL
+    	STR 	: BLOCK [DSC$K_S_BLN,BYTE],
+    	EXC 	: REF EXCDEF;
+
+    $INIT_DYNDESC (STR);
+
+    IF NOT .OUTCMD AND (.EXCQUE [QUE_L_HEAD] NEQA EXCQUE [QUE_L_HEAD]) THEN
+    BEGIN
+    	(.OUTRTN) (%ASCID'');
+    	(.OUTRTN) (%ASCID'Exclude records:');
+    END;
+
+    EXC = .EXCQUE [QUE_L_HEAD];
+    WHILE .EXC NEQA EXCQUE [QUE_L_HEAD] DO
+    BEGIN
+    	IF .OUTCMD THEN
+    	BEGIN
+    	    IF .EXC [EXC_L_IDENT] EQL 0 THEN
+    	    	LIB$SYS_FAO (%ASCID'EXCLUDE "!AD" !AS/UIC=!%I -', 0, STR,
+    	    	.EXC [EXC_W_UNAMELEN], EXC [EXC_T_UNAME],
+    	    	(IF .EXC [EXC_V_OPERATOR] THEN %ASCID'/OPERATOR' ELSE %ASCID''),
+    	    	.EXC [EXC_L_UIC])
+    	    ELSE
+    	    	LIB$SYS_FAO (%ASCID'EXCLUDE "!AD" !AS/UIC=!%I /HOLDING=!%I -',
+    	    	    0, STR, .EXC [EXC_W_UNAMELEN], EXC [EXC_T_UNAME],
+    	    	(IF .EXC [EXC_V_OPERATOR] THEN %ASCID'/OPERATOR' ELSE %ASCID''),
+    	    	    .EXC [EXC_L_UIC], .EXC [EXC_L_IDENT]);
+    	    (.OUTRTN) (STR);
+
+    	    LIB$SYS_FAO (%ASCID'  /TERMINAL="!AD" /ACCPORNAM="!AD" -', 0, STR,
+    	    	.EXC [EXC_W_TRMNAMLEN], EXC [EXC_T_TRMNAM],
+    	    	.EXC [EXC_W_ACCNAMLEN], EXC [EXC_T_ACCNAM]);
+    	    (.OUTRTN) (STR);
+    	    LIB$SYS_FAO (%ASCID'  /IMAGE="!AD" -', 0, STR,
+    	    	.EXC [EXC_W_IMGNAMLEN], EXC [EXC_T_IMGNAM]);
+    	END
+    	ELSE
+    	BEGIN
+    	    (.OUTRTN) (%ASCID'');
+    	    IF .EXC [EXC_L_IDENT] EQL 0 THEN
+    	    	LIB$SYS_FAO (%ASCID'  Username: !AD, UIC: !%I', 0, STR,
+    	    	.EXC [EXC_W_UNAMELEN], EXC [EXC_T_UNAME], .EXC [EXC_L_UIC])
+    	    ELSE
+    	    	LIB$SYS_FAO (%ASCID %STRING ('  Username: !AD, UIC: !%I, ',
+    	    	    'holding identifier: !%I'),
+    	    	    0, STR, .EXC [EXC_W_UNAMELEN], EXC [EXC_T_UNAME],
+    	    	    .EXC [EXC_L_UIC], .EXC [EXC_L_IDENT]);
+    	    (.OUTRTN) (STR);
+
+    	    LIB$SYS_FAO (%ASCID'  Device: !AD, Port name: !AD!AS', 0, STR,
+    	    	.EXC [EXC_W_TRMNAMLEN], EXC [EXC_T_TRMNAM],
+    	    	.EXC [EXC_W_ACCNAMLEN], EXC [EXC_T_ACCNAM],
+    	    	(IF .EXC [EXC_V_OPERATOR] THEN %ASCID' (operator terminal)' ELSE %ASCID''));
+    	    (.OUTRTN) (STR);
+
+    	    LIB$SYS_FAO (%ASCID'  Running image: !AD', 0, STR,
+    	    	.EXC [EXC_W_IMGNAMLEN], EXC [EXC_T_IMGNAM]);
+    	END;
+    	(.OUTRTN) (STR);
+
+    	FORMAT_PRIVS (EXC [EXC_Q_PRIVMASK], STR);
+    	IF .STR [DSC$W_LENGTH] GTR 0 THEN
+    	BEGIN
+    	    IF .OUTCMD THEN
+    	    BEGIN
+    	    	STR$PREFIX (STR, %ASCID'  /PRIV=(');
+    	    	STR$APPEND (STR, %ASCID') -');
+    	    END
+    	    ELSE STR$PREFIX (STR, %ASCID'  Privileges: ');
+    	    (.OUTRTN) (STR);
+    	END;
+
+    	FORMAT_TIMES (EXC [EXC_AL_TIMES], STR);
+    	IF .OUTCMD THEN
+    	BEGIN
+    	    STR$PREFIX (STR, %ASCID'  /DURING=(');
+    	    STR$APPEND (STR, %ASCID')');
+    	END
+    	ELSE STR$PREFIX (STR, %ASCID'  Times: ');
+    	(.OUTRTN) (STR);
+
+    	EXC = .EXC [EXC_L_FLINK];
+
+    END;
+
+    STR$FREE1_DX (STR);
+
+    SS$_NORMAL
+
+END; ! SHOW_EXCLUDES;
+
+%SBTTL 'SHOW_OVERRIDES'
+GLOBAL ROUTINE SHOW_OVERRIDES (OUTRTN, OUTCMD) = 
+BEGIN
+!++
+! FUNCTIONAL DESCRIPTION:
+!
+!   Displays OVERRIDE records.
+!
+! RETURNS:  	cond_value, longword (unsigned), write only, by value
+!
+! PROTOTYPE:
+!
+!   SHOW_OVERRIDES
+!
+! IMPLICIT INPUTS:  None.
+!
+! IMPLICIT OUTPUTS: None.
+!
+! COMPLETION CODES:
+!
+!   SS$_NORMAL:	    	normal successful completion.
+!
+! SIDE EFFECTS:
+!
+!   None.
+!--
+    LOCAL
+    	STR 	: BLOCK [DSC$K_S_BLN,BYTE],
+    	STR2	: BLOCK [DSC$K_S_BLN,BYTE],
+    	OVR 	: REF EXCDEF,
+    	DID_ONE;
+
+    INIT_DYNDESC (STR, STR2);
+
+    IF NOT .OUTCMD AND (.OVRQUE [QUE_L_HEAD] NEQA OVRQUE [QUE_L_HEAD]) THEN
+    BEGIN
+    	(.OUTRTN) (%ASCID'');
+    	(.OUTRTN) (%ASCID'Override records:');
+    END;
+
+    OVR = .OVRQUE [QUE_L_HEAD];
+    WHILE .OVR NEQA OVRQUE [QUE_L_HEAD] DO
+    BEGIN
+    	IF .OUTCMD THEN
+    	BEGIN
+    	    IF .OVR [EXC_L_IDENT] EQL 0 THEN
+    	    	LIB$SYS_FAO (%ASCID'OVERRIDE "!AD" !AS/UIC=!%I -', 0, STR,
+    	    	.OVR [EXC_W_UNAMELEN], OVR [EXC_T_UNAME],
+    	    	(IF .OVR [EXC_V_OPERATOR] THEN %ASCID'/OPERATOR' ELSE %ASCID''),
+    	    	.OVR [EXC_L_UIC])
+    	    ELSE
+    	    	LIB$SYS_FAO (%ASCID'OVERRIDE "!AD" !AS/UIC=!%I /HOLDING=!%I -',
+    	    	    0, STR, .OVR [EXC_W_UNAMELEN], OVR [EXC_T_UNAME],
+    	    	(IF .OVR [EXC_V_OPERATOR] THEN %ASCID'/OPERATOR' ELSE %ASCID''),
+    	    	    .OVR [EXC_L_UIC], .OVR [EXC_L_IDENT]);
+    	    (.OUTRTN) (STR);
+
+    	    LIB$SYS_FAO (%ASCID'  /TERMINAL="!AD" /ACCPORNAM="!AD" -', 0, STR,
+    	    	.OVR [EXC_W_TRMNAMLEN], OVR [EXC_T_TRMNAM],
+    	    	.OVR [EXC_W_ACCNAMLEN], OVR [EXC_T_ACCNAM]);
+    	    (.OUTRTN) (STR);
+    	    LIB$SYS_FAO (%ASCID'  /IMAGE="!AD" -', 0, STR,
+    	    	.OVR [EXC_W_IMGNAMLEN], OVR [EXC_T_IMGNAM]);
+    	END
+    	ELSE
+    	BEGIN
+    	    (.OUTRTN) (%ASCID'');
+    	    IF .OVR [EXC_L_IDENT] EQL 0 THEN
+    	    	LIB$SYS_FAO (%ASCID'  Username: !AD, UIC: !%I', 0, STR,
+    	    	.OVR [EXC_W_UNAMELEN], OVR [EXC_T_UNAME], .OVR [EXC_L_UIC])
+    	    ELSE
+    	    	LIB$SYS_FAO (%ASCID %STRING ('  Username: !AD, UIC: !%I, ',
+    	    	    'holding identifier: !%I'),
+    	    	    0, STR, .OVR [EXC_W_UNAMELEN], OVR [EXC_T_UNAME],
+    	    	    .OVR [EXC_L_UIC], .OVR [EXC_L_IDENT]);
+    	    (.OUTRTN) (STR);
+
+    	    LIB$SYS_FAO (%ASCID'  Device: !AD, Port name: !AD!AS', 0, STR,
+    	    	.OVR [EXC_W_TRMNAMLEN], OVR [EXC_T_TRMNAM],
+    	    	.OVR [EXC_W_ACCNAMLEN], OVR [EXC_T_ACCNAM],
+    	    	(IF .OVR [EXC_V_OPERATOR] THEN %ASCID' (operator terminal)' ELSE %ASCID''));
+    	    (.OUTRTN) (STR);
+
+    	    LIB$SYS_FAO (%ASCID'  Running image: !AD', 0, STR,
+    	    	.OVR [EXC_W_IMGNAMLEN], OVR [EXC_T_IMGNAM]);
+    	END;
+    	(.OUTRTN) (STR);
+
+    	FORMAT_PRIVS (OVR [EXC_Q_PRIVMASK], STR);
+    	IF .STR [DSC$W_LENGTH] GTR 0 THEN
+    	BEGIN
+    	    IF .OUTCMD THEN
+    	    BEGIN
+    	    	STR$PREFIX (STR, %ASCID'  /PRIV=(');
+    	    	STR$APPEND (STR, %ASCID') -');
+    	    END
+    	    ELSE STR$PREFIX (STR, %ASCID'  Privileges: ');
+    	    (.OUTRTN) (STR);
+    	END;
+
+    	FORMAT_TIMES (OVR [EXC_AL_TIMES], STR);
+    	IF .OUTCMD THEN
+    	BEGIN
+    	    STR$PREFIX (STR, %ASCID'  /DURING=(');
+    	    STR$APPEND (STR, %ASCID')');
+    	END
+    	ELSE
+    	BEGIN
+    	    STR$PREFIX (STR, %ASCID'  Times: ');
+    	    (.OUTRTN) (STR);
+    	END;
+
+    	IF .OVR [EXC_V_METRICS] THEN
+    	BEGIN
+    	    IF .OUTCMD THEN
+    	    BEGIN
+    	    	STR$APPEND (STR, %ASCID' -');
+    	    	(.OUTRTN) (STR);
+    	    	STR$COPY_DX (STR, %ASCID'  /MEASURE=(');
+    	    END
+    	    ELSE
+    	    	STR$COPY_DX (STR, %ASCID'  Measuring:');
+    	    DID_ONE = 0;
+    	    IF .OVR [EXC_V_CPU] THEN
+    	    BEGIN
+    	    	DID_ONE = 1;
+    	    	LIB$SYS_FAO ((IF .OUTCMD THEN %ASCID'CPU=!UL' ELSE
+    	    	    %ASCID' CPU time (threshold=!UL)'), 0, STR2,
+    	    	    .OVR [EXC_L_DCPU]);
+    	    	STR$APPEND (STR, STR2);
+    	    END;
+    	    IF .OVR [EXC_V_PIO] THEN
+    	    BEGIN
+    	    	IF .DID_ONE THEN STR$APPEND (STR, %ASCID',');
+    	    	DID_ONE = 1;
+    	    	LIB$SYS_FAO ((IF .OUTCMD THEN %ASCID'PROCESS_IO=!UL' ELSE
+    	    	    %ASCID' process I/O (threshold=!UL)'), 0, STR2,
+    	    	    .OVR [EXC_L_DPIO]);
+    	    	STR$APPEND (STR, STR2);
+    	    END;
+    	    IF .OVR [EXC_V_TIO] THEN
+    	    BEGIN
+    	    	IF .DID_ONE THEN STR$APPEND (STR, %ASCID',');
+    	    	DID_ONE = 1;
+    	    	LIB$SYS_FAO ((IF .OUTCMD THEN %ASCID'TERMINAL_IO=!UL' ELSE
+    	    	    %ASCID' term I/O (threshold=!UL)'), 0, STR2,
+    	    	    .OVR [EXC_L_DTIO]);
+    	    	STR$APPEND (STR, STR2);
+    	    END;
+    	    IF .OUTCMD THEN STR$APPEND (STR, %ASCID')')
+    	    ELSE (.OUTRTN) (STR);
+    	END
+    	ELSE IF NOT .OUTCMD THEN
+    	    (.OUTRTN) (%ASCID'  Measurements settings not overridden.');
+
+    	IF .OVR [EXC_V_OVRWARN] THEN
+    	BEGIN
+    	    IF .OUTCMD THEN
+    	    BEGIN
+    	    	STR$APPEND (STR, %ASCID'- ');
+    	    	(.OUTRTN) (STR);
+    	    	IF .OVR [EXC_V_WARN] THEN
+    	    	    LIB$SYS_FAO (%ASCID'  /WARNING="!%T"', 0, STR,
+    	    	    	OVR [EXC_Q_WARNTIME])
+    	    	ELSE
+    	    	    STR$COPY_DX (STR, %ASCID'  /NOWARNING');
+    	    END
+    	    ELSE
+    	    BEGIN
+    	    	IF .OVR [EXC_V_WARN] THEN
+    	    	    LIB$SYS_FAO (%ASCID'  Warnings ENABLED at !%T.', 0,
+    	    	    	STR, OVR [EXC_Q_WARNTIME])
+    	    	ELSE
+    	    	    STR$COPY_DX (STR, %ASCID'  Warnings DISABLED.');
+    	    	(.OUTRTN) (STR);
+    	    END;
+    	END
+    	ELSE IF NOT .OUTCMD THEN
+    	    (.OUTRTN) (%ASCID'  Warning settings not overridden.');
+
+    	IF .OVR [EXC_V_OVRFORCE] THEN
+    	BEGIN
+    	    IF .OUTCMD THEN
+    	    BEGIN
+    	    	STR$APPEND (STR, %ASCID'- ');
+    	    	(.OUTRTN) (STR);
+    	    	IF .OVR [EXC_V_FORCE] THEN
+    	    	    LIB$SYS_FAO (%ASCID'  /LOGOUT="!%T"', 0, STR,
+    	    	    	OVR [EXC_Q_FORCETIME])
+    	    	ELSE IF .OVR [EXC_V_DISCON] THEN
+    	    	    LIB$SYS_FAO (%ASCID'  /DISCONNECT="!%T"', 0, STR,
+    	    	    	OVR [EXC_Q_FORCETIME])
+    	    	ELSE IF .OVR [EXC_V_EXIT] THEN
+    	    	    LIB$SYS_FAO (%ASCID'  /FORCE_EXIT="!%T"', 0, STR,
+    	    	    	OVR [EXC_Q_FORCETIME])
+    	    	ELSE
+    	    	    STR$COPY_DX (STR, %ASCID'  /NOLOGOUT');
+    	    END
+    	    ELSE
+    	    BEGIN
+    	    	IF .OVR [EXC_V_FORCE] OR .OVR [EXC_V_DISCON] OR
+    	    	    	    .OVR [EXC_V_EXIT] THEN
+    	    	    LIB$SYS_FAO (%ASCID'  !AS ENABLED at !%T.', 0,
+    	    	    	STR, (IF .OVR [EXC_V_FORCE] THEN %ASCID'Logouts'
+    	    	    	    ELSE IF .OVR [EXC_V_DISCON] THEN %ASCID'Disconnects'
+    	    	    	    ELSE %ASCID'Forced image exits'),
+    	    	    	    OVR [EXC_Q_FORCETIME])
+    	    	ELSE
+    	    	    STR$COPY_DX (STR, %ASCID'  Logouts DISABLED.');
+    	    	(.OUTRTN) (STR);
+    	    END;
+    	END
+    	ELSE IF NOT .OVR [EXC_V_OVRFORCE] AND NOT .OUTCMD THEN
+    	    (.OUTRTN) (%ASCID'  Logout/disconnect/forced-exit settings not overridden.');
+
+    	IF .OUTCMD THEN (.OUTRTN) (STR);
+    	OVR = .OVR [EXC_L_FLINK];
+
+    END;
+
+    FREE_STRINGS (STR, STR2);
+
+    SS$_NORMAL
+
+END; ! SHOW_OVERRIDES;
+
+%SBTTL 'SHOW_EVENT_LOG'
+GLOBAL ROUTINE SHOW_EVENT_LOG (OUTRTN, OUTCMD) = 
+BEGIN
+!++
+! FUNCTIONAL DESCRIPTION:
+!
+!   Displays event log information.
+!
+! RETURNS:  	cond_value, longword (unsigned), write only, by value
+!
+! PROTOTYPE:
+!
+!   SHOW_EVENT_LOG
+!
+! IMPLICIT INPUTS:  None.
+!
+! IMPLICIT OUTPUTS: None.
+!
+! COMPLETION CODES:
+!
+!   SS$_NORMAL:	    	normal successful completion.
+!
+! SIDE EFFECTS:
+!
+!   None.
+!--
+    LOCAL
+    	STR 	: BLOCK [DSC$K_S_BLN,BYTE];
+
+    $INIT_DYNDESC (STR);
+
+    IF NOT .OUTCMD THEN (.OUTRTN) (%ASCID'');
+
+    IF NOT .GLOBALS [GBL_V_OPERATOR] AND NOT .GLOBALS [GBL_V_LOGFILE] THEN
+    	IF .OUTCMD THEN
+    	    STR$COPY_DX (STR, %ASCID'SET NOEVENT_LOG')
+    	ELSE
+    	    STR$COPY_DX (STR, %ASCID'No event log.')
+    ELSE
+    BEGIN
+    	IF .OUTCMD THEN
+    	BEGIN
+    	    STR$COPY_DX (STR, %ASCID'SET EVENT_LOG - ');
+    	    (.OUTRTN) (STR);
+    	END;
+
+    	IF .GLOBALS [GBL_V_OPERATOR] THEN
+    	BEGIN
+    	    FORMAT_OPCS (GLOBALS [GBL_L_OPERATOR], STR);
+    	    IF .OUTCMD THEN
+    	    BEGIN
+    	    	STR$PREFIX (STR, %ASCID'  /OPERATOR=(');
+    	    	STR$APPEND (STR, %ASCID')');
+    	    	(.OUTRTN) (STR);
+    	    END
+    	    ELSE
+    	    BEGIN
+    	    	(.OUTRTN) (%ASCID'Events logged to operator class(es): ');
+    	    	(.OUTRTN) (STR);
+    	    END;
+    	END;
+    	IF .GLOBALS [GBL_V_LOGFILE] THEN
+    	BEGIN
+    	    IF .OUTCMD THEN LIB$SYS_FAO (%ASCID'  /FILE=!AD', 0, STR,
+    	    	.GLOBALS [GBL_W_LOGFLEN], GLOBALS [GBL_T_LOGFNAM])
+    	    ELSE LIB$SYS_FAO (%ASCID'Events logged to file: !AD', 0, STR,
+    	    	.GLOBALS [GBL_W_LOGFLEN], GLOBALS [GBL_T_LOGFNAM]);
+    	    (.OUTRTN) (STR);
+    	END;
+    END;
+
+    STR$FREE1_DX (STR);
+
+    SS$_NORMAL
+
+END; ! SHOW_EVENT_LOG
+
+%SBTTL 'SHOW_INTERVAL'
+GLOBAL ROUTINE SHOW_INTERVAL (OUTRTN, OUTCMD) = 
+BEGIN
+!++
+! FUNCTIONAL DESCRIPTION:
+!
+!   Displays the wakeup interval.
+!
+! RETURNS:  	cond_value, longword (unsigned), write only, by value
+!
+! PROTOTYPE:
+!
+!   SHOW_INTERVAL
+!
+! IMPLICIT INPUTS:  None.
+!
+! IMPLICIT OUTPUTS: None.
+!
+! COMPLETION CODES:
+!
+!   SS$_NORMAL:	    	normal successful completion.
+!
+! SIDE EFFECTS:
+!
+!   None.
+!--
+    LOCAL
+    	STR 	: BLOCK [DSC$K_S_BLN,BYTE];
+
+    $INIT_DYNDESC (STR);
+
+    IF NOT .OUTCMD THEN (.OUTRTN) (%ASCID'');
+
+    IF .OUTCMD THEN
+    	LIB$SYS_FAO (%ASCID'SET INTERVAL="!%T"', 0, STR,
+    	    GLOBALS [GBL_Q_INTERVAL])
+    ELSE
+    	LIB$SYS_FAO (%ASCID'Wakeup interval: !%T', 0, STR,
+    	    GLOBALS [GBL_Q_INTERVAL]);
+    (.OUTRTN) (STR);
+
+    STR$FREE1_DX (STR);
+
+    SS$_NORMAL
+
+END; ! SHOW_INTERVAL
+
+%SBTTL 'SHOW_BELL'
+GLOBAL ROUTINE SHOW_BELL (OUTRTN, OUTCMD) = 
+BEGIN
+!++
+! FUNCTIONAL DESCRIPTION:
+!
+!   Displays the BELL setting - whether a bell is rung on the terminal
+!   when WATCHER displays its logout warnings.
+!
+! RETURNS:  	cond_value, longword (unsigned), write only, by value
+!
+! PROTOTYPE:
+!
+!   SHOW_BELL
+!
+! IMPLICIT INPUTS:  None.
+!
+! IMPLICIT OUTPUTS: None.
+!
+! COMPLETION CODES:
+!
+!   SS$_NORMAL:	    	normal successful completion.
+!
+! SIDE EFFECTS:
+!
+!   None.
+!--
+
+    IF NOT .OUTCMD THEN (.OUTRTN) (%ASCID'');
+
+    IF .OUTCMD THEN
+    	IF .GLOBALS [GBL_V_BELL] THEN
+    	    (.OUTRTN) (%ASCID'SET BELL')
+    	ELSE
+    	    (.OUTRTN) (%ASCID'SET NOBELL')
+    ELSE
+    	IF .GLOBALS [GBL_V_BELL] THEN
+    	    (.OUTRTN) (%ASCID'Bell on warning messages ENABLED.')
+    	ELSE
+    	    (.OUTRTN) (%ASCID'Bell on warning messages DISABLED.');
+
+    SS$_NORMAL
+
+END; ! SHOW_BELL
+
+%SBTTL 'SHOW_DEBUG'
+GLOBAL ROUTINE SHOW_DEBUG (OUTRTN, OUTCMD) = 
+BEGIN
+!++
+! FUNCTIONAL DESCRIPTION:
+!
+!   Displays the DEBUG setting.
+!
+! RETURNS:  	cond_value, longword (unsigned), write only, by value
+!
+! PROTOTYPE:
+!
+!   SHOW_DEBUG
+!
+! IMPLICIT INPUTS:  None.
+!
+! IMPLICIT OUTPUTS: None.
+!
+! COMPLETION CODES:
+!
+!   SS$_NORMAL:	    	normal successful completion.
+!
+! SIDE EFFECTS:
+!
+!   None.
+!--
+    LOCAL
+    	STR 	: BLOCK [DSC$K_S_BLN,BYTE];
+
+    INIT_DYNDESC (STR);
+
+    IF NOT .OUTCMD THEN (.OUTRTN) (%ASCID'');
+
+    IF .OUTCMD THEN
+    	IF .GLOBALS [GBL_V_TRACE] THEN
+    	BEGIN
+    	    LIB$SYS_FAO (%ASCID'SET DEBUG=!UL', 0, STR,
+    	    	.GLOBALS [GBL_L_DBGMSK]);
+    	    (.OUTRTN) (STR)
+    	END
+    	ELSE
+    	    (.OUTRTN) (%ASCID'SET NODEBUG')
+    ELSE
+    	IF .GLOBALS [GBL_V_TRACE] THEN
+    	BEGIN
+    	    LIB$SYS_FAO (%ASCID'Debugging mode ENABLED, mask=!UL', 0, STR,
+    	    	.GLOBALS [GBL_L_DBGMSK]);
+    	    (.OUTRTN) (STR);
+    	END
+    	ELSE
+    	    (.OUTRTN) (%ASCID'Debugging mode DISABLED.');
+
+    FREE_STRINGS (STR);
+
+    SS$_NORMAL
+
+END; ! SHOW_DEBUG
+
+%SBTTL 'SHOW_DECW'
+GLOBAL ROUTINE SHOW_DECW (OUTRTN, OUTCMD) = 
+BEGIN
+!++
+! FUNCTIONAL DESCRIPTION:
+!
+!   Displays the DECwindows setting - whether WATCHER should perform
+!   the extra work needed to watch DECwindows sessions.
+!
+! RETURNS:  	cond_value, longword (unsigned), write only, by value
+!
+! PROTOTYPE:
+!
+!   SHOW_DECW
+!
+! IMPLICIT INPUTS:  None.
+!
+! IMPLICIT OUTPUTS: None.
+!
+! COMPLETION CODES:
+!
+!   SS$_NORMAL:	    	normal successful completion.
+!
+! SIDE EFFECTS:
+!
+!   None.
+!--
+
+    IF NOT .OUTCMD THEN (.OUTRTN) (%ASCID'');
+
+    IF .OUTCMD THEN
+    	IF .GLOBALS [GBL_V_DECW] THEN
+    	    (.OUTRTN) (%ASCID'SET DECWINDOWS')
+    	ELSE
+    	    (.OUTRTN) (%ASCID'SET NODECWINDOWS')
+    ELSE
+    	IF .GLOBALS [GBL_V_DECW] THEN
+    	    (.OUTRTN) (%ASCID'DECwindows checking ENABLED.')
+    	ELSE
+    	    (.OUTRTN) (%ASCID'DECwindows checking DISABLED.');
+
+    SS$_NORMAL
+
+END; ! SHOW_DECW
+
+%SBTTL 'SHOW_MULTIWARN'
+GLOBAL ROUTINE SHOW_MULTIWARN (OUTRTN, OUTCMD) = 
+BEGIN
+!++
+! FUNCTIONAL DESCRIPTION:
+!
+!   Displays the multiple-warnings setting.
+!
+! RETURNS:  	cond_value, longword (unsigned), write only, by value
+!
+! PROTOTYPE:
+!
+!   SHOW_MULTIWARN
+!
+! IMPLICIT INPUTS:  None.
+!
+! IMPLICIT OUTPUTS: None.
+!
+! COMPLETION CODES:
+!
+!   SS$_NORMAL:	    	normal successful completion.
+!
+! SIDE EFFECTS:
+!
+!   None.
+!--
+    LOCAL
+    	STR 	: BLOCK [DSC$K_S_BLN,BYTE];
+
+    IF NOT .OUTCMD THEN (.OUTRTN) (%ASCID'');
+
+    IF .OUTCMD THEN
+    	IF .GLOBALS [GBL_V_MULTIWARN] THEN
+    	BEGIN
+    	    INIT_DYNDESC (STR);
+    	    LIB$SYS_FAO (%ASCID'SET MULTIWARN/INTERVAL="!%T"', 0, STR,
+    	    	GLOBALS [GBL_Q_MWINTVL]);
+    	    (.OUTRTN) (STR);
+    	    FREE_STRINGS (STR);
+    	END
+    	ELSE
+    	    (.OUTRTN) (%ASCID'SET NOMULTIWARN')
+    ELSE
+    	IF .GLOBALS [GBL_V_MULTIWARN] THEN
+    	BEGIN
+    	    INIT_DYNDESC (STR);
+    	    LIB$SYS_FAO (%ASCID'Multiple warnings ENABLED, interval: !%T', 0,
+    	    	STR, GLOBALS [GBL_Q_MWINTVL]);
+    	    (.OUTRTN) (STR);
+    	    FREE_STRINGS (STR);
+    	END
+    	ELSE
+    	    (.OUTRTN) (%ASCID'Multiple warnings DISABLED.');
+
+    SS$_NORMAL
+
+END; ! SHOW_MULTIWARN
+
+%SBTTL 'SHOW_ACTION'
+GLOBAL ROUTINE SHOW_ACTION (OUTRTN, OUTCMD) = 
+BEGIN
+!++
+! FUNCTIONAL DESCRIPTION:
+!
+!   Displays the action/noaction setting.
+!
+! RETURNS:  	cond_value, longword (unsigned), write only, by value
+!
+! PROTOTYPE:
+!
+!   SHOW_ACTION
+!
+! IMPLICIT INPUTS:  None.
+!
+! IMPLICIT OUTPUTS: None.
+!
+! COMPLETION CODES:
+!
+!   SS$_NORMAL:	    	normal successful completion.
+!
+! SIDE EFFECTS:
+!
+!   None.
+!--
+
+    IF NOT .OUTCMD THEN (.OUTRTN) (%ASCID'');
+
+    IF .OUTCMD THEN
+    	IF .GLOBALS [GBL_V_NOACTION] THEN
+    	    (.OUTRTN) (%ASCID'SET NOACTION')
+    	ELSE
+    	    (.OUTRTN) (%ASCID'SET ACTION')
+    ELSE
+    	IF .GLOBALS [GBL_V_NOACTION] THEN
+    	    (.OUTRTN) (%ASCID'Warning/Logout/Disconnect/Exit actions DISABLED.')
+    	ELSE
+    	    (.OUTRTN) (%ASCID'Warning/Logout/Disconnect/Exit actions ENABLED.');
+
+    SS$_NORMAL
+
+END; ! SHOW_ACTION
+
+%SBTTL 'SHOW_INSWAP'
+GLOBAL ROUTINE SHOW_INSWAP (OUTRTN, OUTCMD) = 
+BEGIN
+!++
+! FUNCTIONAL DESCRIPTION:
+!
+!   Displays the inswap/noinswap setting.
+!
+! RETURNS:  	cond_value, longword (unsigned), write only, by value
+!
+! PROTOTYPE:
+!
+!   SHOW_INSWAP
+!
+! IMPLICIT INPUTS:  None.
+!
+! IMPLICIT OUTPUTS: None.
+!
+! COMPLETION CODES:
+!
+!   SS$_NORMAL:	    	normal successful completion.
+!
+! SIDE EFFECTS:
+!
+!   None.
+!--
+
+    IF NOT .OUTCMD THEN (.OUTRTN) (%ASCID'');
+
+    IF .OUTCMD THEN
+    	IF .GLOBALS [GBL_V_NOINSWAP] THEN
+    	    (.OUTRTN) (%ASCID'SET NOINSWAP')
+    	ELSE
+    	    (.OUTRTN) (%ASCID'SET INSWAP')
+    ELSE
+    	IF .GLOBALS [GBL_V_NOINSWAP] THEN
+    	    (.OUTRTN) (%ASCID'$GETJPI process inswaps DISABLED.')
+    	ELSE
+    	    (.OUTRTN) (%ASCID'$GETJPI process inswaps ENABLED.');
+
+    SS$_NORMAL
+
+END; ! SHOW_INSWAP
+
+%SBTTL 'SHOW_WATCH_DEFAULTS'
+GLOBAL ROUTINE SHOW_WATCH_DEFAULTS (OUTRTN, OUTCMD) = 
+BEGIN
+!++
+! FUNCTIONAL DESCRIPTION:
+!
+!   Displays the defaults applied to WATCH commands.
+!
+! RETURNS:  	cond_value, longword (unsigned), write only, by value
+!
+! PROTOTYPE:
+!
+!   SHOW_WATCH_DEFAULTS
+!
+! IMPLICIT INPUTS:  None.
+!
+! IMPLICIT OUTPUTS: None.
+!
+! COMPLETION CODES:
+!
+!   SS$_NORMAL:	    	normal successful completion.
+!
+! SIDE EFFECTS:
+!
+!   None.
+!--
+    LOCAL
+    	STR 	: BLOCK [DSC$K_S_BLN,BYTE],
+    	STR2	: BLOCK [DSC$K_S_BLN,BYTE],
+    	DID_ONE;
+
+    INIT_DYNDESC (STR, STR2);
+
+    IF .OUTCMD THEN
+    BEGIN
+    	STR$COPY_DX (STR, %ASCID'SET WATCH_DEFAULT -');
+    	(.OUTRTN) (STR);
+    END
+    ELSE
+    BEGIN
+    	(.OUTRTN) (%ASCID'');
+    	(.OUTRTN) (%ASCID'Watch command defaults:');
+    END;
+
+    IF .DEFAULTS [DFLT_V_WARN] THEN
+    	IF .OUTCMD THEN
+    	    LIB$SYS_FAO (%ASCID'  /WARNING="!%T" -', 0, STR,
+    	    	DEFAULTS [DFLT_Q_WARNTIME])
+    	ELSE
+    	    LIB$SYS_FAO (%ASCID'  Warnings ENABLED at !%T.', 0, STR,
+    	    	DEFAULTS [DFLT_Q_WARNTIME])
+    ELSE
+    	IF .OUTCMD THEN
+    	    STR$COPY_DX (STR, %ASCID'  /NOWARNING -')
+    	ELSE
+    	    STR$COPY_DX (STR, %ASCID'  Warnings DISABLED.');
+
+    (.OUTRTN) (STR);
+
+    IF .DEFAULTS [DFLT_V_FORCE] THEN
+    	IF .OUTCMD THEN
+    	    LIB$SYS_FAO (%ASCID'  /LOGOUT="!%T" -', 0, STR,
+    	    	DEFAULTS [DFLT_Q_FORCETIME])
+    	ELSE
+    	    LIB$SYS_FAO (%ASCID'  Logouts ENABLED at !%T.', 0, STR,
+    	    	DEFAULTS [DFLT_Q_FORCETIME])
+    ELSE IF .DEFAULTS [DFLT_V_DISCON] THEN
+    	IF .OUTCMD THEN
+    	    LIB$SYS_FAO (%ASCID'  /DISCONNECT="!%T" -', 0, STR,
+    	    	DEFAULTS [DFLT_Q_FORCETIME])
+    	ELSE
+    	    LIB$SYS_FAO (%ASCID'  Disconnects ENABLED at !%T.', 0, STR,
+    	    	DEFAULTS [DFLT_Q_FORCETIME])
+    ELSE IF .DEFAULTS [DFLT_V_EXIT] THEN
+    	IF .OUTCMD THEN
+    	    LIB$SYS_FAO (%ASCID'  /FORCE_EXIT="!%T" -', 0, STR,
+    	    	DEFAULTS [DFLT_Q_FORCETIME])
+    	ELSE
+    	    LIB$SYS_FAO (%ASCID'  Forced image exits ENABLED at !%T.', 0, STR,
+    	    	DEFAULTS [DFLT_Q_FORCETIME])
+    ELSE
+    	IF .OUTCMD THEN
+    	    STR$COPY_DX (STR, %ASCID'  /NOLOGOUT -')
+    	ELSE
+    	    STR$COPY_DX (STR, %ASCID'  Logouts/disconnects/forced image exits DISABLED.');
+    (.OUTRTN) (STR);
+
+    IF .OUTCMD THEN
+    	STR$COPY_DX (STR, %ASCID'  /MEASURE=(')
+    ELSE
+    	STR$COPY_DX (STR, %ASCID'  Measuring:');
+
+    DID_ONE = 0;
+    IF .DEFAULTS [DFLT_V_CPU] THEN
+    BEGIN
+    	LIB$SYS_FAO ((IF .OUTCMD THEN %ASCID'CPU=!UL' ELSE
+    	    %ASCID' CPU time (threshold=!UL)'), 0, STR2,
+    	    .DEFAULTS [DFLT_L_DCPU]);
+    	STR$APPEND (STR, STR2);
+    	DID_ONE = 1;
+    END;
+    IF .DEFAULTS [DFLT_V_PIO] THEN
+    BEGIN
+    	IF .DID_ONE THEN STR$APPEND (STR, %ASCID',');
+    	LIB$SYS_FAO ((IF .OUTCMD THEN %ASCID'PROCESS_IO=!UL' ELSE
+    	    %ASCID' process I/O (threshold=!UL)'), 0, STR2,
+    	    	.DEFAULTS [DFLT_L_DPIO]);
+    	STR$APPEND (STR, STR2);
+    	DID_ONE = 1;
+    END;
+    IF .DEFAULTS [DFLT_V_TIO] THEN
+    BEGIN
+    	IF .DID_ONE THEN STR$APPEND (STR, %ASCID',');
+    	LIB$SYS_FAO ((IF .OUTCMD THEN %ASCID'TERMINAL_IO=!UL' ELSE
+    	    %ASCID' term I/O (threshold=!UL)'), 0, STR2,
+    	    	.DEFAULTS [DFLT_L_DTIO]);
+    	STR$APPEND (STR, STR2);
+    	DID_ONE = 1;
+    END;
+    IF .OUTCMD THEN STR$APPEND (STR, %ASCID')');
+    (.OUTRTN) (STR);
+
+    FREE_STRINGS (STR, STR2);
+
+    SS$_NORMAL
+
+END; ! SHOW_WATCH_DEFAULTS
+
+%SBTTL 'SHOW_DAYS'
+GLOBAL ROUTINE SHOW_DAYS (OUTRTN, OUTCMD) = 
+BEGIN
+!++
+! FUNCTIONAL DESCRIPTION:
+!
+!   Displays the primary days.
+!
+! RETURNS:  	cond_value, longword (unsigned), write only, by value
+!
+! PROTOTYPE:
+!
+!   SHOW_DAYS
+!
+! IMPLICIT INPUTS:  None.
+!
+! IMPLICIT OUTPUTS: None.
+!
+! COMPLETION CODES:
+!
+!   SS$_NORMAL:	    	normal successful completion.
+!
+! SIDE EFFECTS:
+!
+!   None.
+!--
+    BIND
+    	DAYS	= DEFAULTS [DFLT_B_PRIMEDAYS] : BLOCK [1,BYTE],
+    	DAYBITS	= DEFAULTS [DFLT_B_PRIMEDAYS] : BITVECTOR [6];
+
+    TABLE (DAYNAMES, 'MO', 'TU', 'WE', 'TH', 'FR', 'SA', 'SU');
+    TABLE (LONGNAMES, ' Monday', ' Tuesday', ' Wednesday', ' Thursday',
+    	' Friday', ' Saturday', ' Sunday');
+
+    LOCAL
+    	STR 	: BLOCK [DSC$K_S_BLN,BYTE],
+    	DID_ONE;
+
+    $INIT_DYNDESC (STR);
+
+    IF NOT .OUTCMD THEN (.OUTRTN) (%ASCID'');
+
+    IF .DAYS [0,0,6,0] EQL 0 THEN
+    	IF .OUTCMD THEN
+    	    STR$COPY_DX (STR, %ASCID'SET DAYS/SECONDARY=(MO,TU,WE,TH,FR,SA,SU)')
+    	ELSE STR$COPY_DX (STR, %ASCID'All days of week are SECONDARY.')
+    ELSE
+    BEGIN
+    	IF .OUTCMD THEN
+    	    STR$COPY_DX (STR, %ASCID'SET DAYS/PRIMARY=(')
+    	ELSE
+    	    STR$COPY_DX (STR, %ASCID'PRIMARY days:');
+
+    	DID_ONE = 0;
+    	INCR I FROM 0 TO 6 DO
+    	    IF .DAYBITS [.I] THEN
+    	    BEGIN
+    	    	IF .DID_ONE THEN STR$APPEND (STR, %ASCID',');
+    	    	IF .OUTCMD THEN
+    	    	    STR$APPEND (STR, .DAYNAMES [.I])
+    	    	ELSE
+    	    	    STR$APPEND (STR, .LONGNAMES [.I]);
+    	    	DID_ONE = 1;
+    	    END;
+    	IF .OUTCMD THEN STR$APPEND (STR, %ASCID')');
+    END;
+
+    (.OUTRTN) (STR);
+
+    STR$FREE1_DX (STR);
+
+    SS$_NORMAL
+
+END; ! SHOW_DAYS
+
+%SBTTL 'SHOW_FILE'
+GLOBAL ROUTINE SHOW_FILE (OUTRTN, OUTCMD) = 
+BEGIN
+!++
+! FUNCTIONAL DESCRIPTION:
+!
+!   Displays the name of the config file we are editing.
+!
+! RETURNS:  	cond_value, longword (unsigned), write only, by value
+!
+! PROTOTYPE:
+!
+!   SHOW_FILE
+!
+! IMPLICIT INPUTS:  None.
+!
+! IMPLICIT OUTPUTS: None.
+!
+! COMPLETION CODES:
+!
+!   SS$_NORMAL:	    	normal successful completion.
+!
+! SIDE EFFECTS:
+!
+!   None.
+!--
+    LOCAL
+    	STR 	: BLOCK [DSC$K_S_BLN,BYTE];
+
+    $INIT_DYNDESC (STR);
+
+    IF NOT .OUTCMD THEN (.OUTRTN) (%ASCID'');
+
+    IF .OUTCMD THEN
+    	LIB$SYS_FAO (%ASCID'!! Configuration file: !AS', 0, STR, CFGFILE)
+    ELSE
+    	LIB$SYS_FAO (%ASCID'Configuration file: !AS', 0, STR, CFGFILE);
+
+    (.OUTRTN) (STR);
+
+    STR$FREE1_DX (STR);
+
+    SS$_NORMAL
+
+END; ! SHOW_FILE
+END
+ELUDOM

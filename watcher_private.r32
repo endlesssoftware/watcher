@@ -1,0 +1,213 @@
+!++
+!
+! WATCHER_PRIVATE.R32
+!
+!   REQUIRE file with stuff only WATCHER needs.  See WATCHER.R32 for
+!   stuff needed by both WATCHER and WCP.
+!
+! AUTHOR:   	    M. Madison
+!
+! Copyright (c) 2010, Matthew Madison.
+!
+! All rights reserved.
+!
+! Redistribution and use in source and binary forms, with or without
+! modification, are permitted provided that the following conditions
+! are met:
+!
+!     * Redistributions of source code must retain the above
+!       copyright notice, this list of conditions and the following
+!       disclaimer.
+!     * Redistributions in binary form must reproduce the above
+!       copyright notice, this list of conditions and the following
+!       disclaimer in the documentation and/or other materials provided
+!       with the distribution.
+!     * Neither the name of the copyright owner nor the names of any
+!       other contributors may be used to endorse or promote products
+!       derived from this software without specific prior written
+!       permission.
+!
+! THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS
+! "AS IS" AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT
+! LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR
+! A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT
+! OWNER OR CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL,
+! SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT
+! LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE,
+! DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY
+! THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
+! (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
+! OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+!
+! CREATION DATE:    15-MAR-1990
+!
+! MODIFICATION HISTORY:
+!
+!   15-MAR-1990	V1.0	Madison	    Initial coding.
+!   11-APR-1990	V1.1	Madison	    Add threshold counts on measurements.
+!   03-JAN-1991	V1.2	Madison	    Add VMS V5.4 check.
+!   07-APR-1992	V1.3	Madison	    Adding IMGNAM support.
+!   03-FEB-1993	V1.4	Madison	    Add EXIT support.
+!   24-JUN-1994	V1.5	Madison	    Add CTR_A_OVERRIDE field.
+!   17-JUL-1997	V1.5-1	Madison	    Assume V5.4 or later.
+!   06-SEP-2010 V1.5-2  Sneddon     Updated license to BSD at request of M. Madison.
+!--
+
+    LIBRARY 'WATCHER';
+    LIBRARY 'FIELDS';
+
+!++
+! CTRDEF: counter structure
+!--
+
+    LITERAL
+    	CTR_S_DEVNAM	= TRM_S_DEVNAM,
+    	CTR_S_ACCNAM	= TRM_S_ACCNAM,
+    	CTR_S_USRNAM	= 32,
+    	CTR_S_GRPNAM	= TRM_S_GRPNAM,
+    	CTR_S_IMGNAM	= EXC_S_IMGNAM;
+
+    _DEF (CTR)
+    	CTR_L_FLINK 	= _LONG,
+    	CTR_L_BLINK 	= _LONG,
+    	CTR_Q_LASTCHG	= _QUAD,
+    	CTR_Q_WARNTIME	= _QUAD,
+    	CTR_Q_LASTWARN	= _QUAD,
+    	CTR_Q_FORCETIME	= _QUAD,
+    	CTR_L_PID   	= _LONG,
+    	CTR_L_CPU   	= _LONG,
+    	CTR_L_DCPU  	= _LONG,
+    	CTR_L_PIOCT 	= _LONG,
+    	CTR_L_DPIOCT	= _LONG,
+    	CTR_L_TIOCT 	= _LONG,
+    	CTR_L_DTIOCT	= _LONG,
+    	CTR_A_TRMREC	= _LONG,
+    	CTR_A_OVERRIDE	= _LONG,
+    	CTR_W_FLAGS 	= _WORD,
+    	_OVERLAY (CTR_W_FLAGS)
+    	    CTR_V_VALID	    = _BIT,
+    	    CTR_V_CHANGED   = _BIT,
+    	    CTR_V_WARNED    = _BIT,
+    	    CTR_V_CPU	    = _BIT,
+    	    CTR_V_PIO	    = _BIT,
+    	    CTR_V_TIO	    = _BIT,
+    	    CTR_V_DISCON    = _BIT,
+    	    CTR_V_WARN	    = _BIT,
+    	    CTR_V_FORCE	    = _BIT,
+    	    CTR_V_EXIT	    = _BIT,
+    	    CTR_V_DECW	    = _BIT,
+    	    CTR_V_FAKE	    = _BIT,
+    	_ENDOVERLAY
+    	CTR_W_DEVLEN	= _WORD,
+    	CTR_T_DEVNAM	= _BYTES (CTR_S_DEVNAM),
+    	CTR_W_ACCLEN	= _WORD,
+    	CTR_T_ACCNAM	= _BYTES (CTR_S_ACCNAM),
+    	CTR_W_USRLEN	= _WORD,
+    	CTR_T_USRNAM	= _BYTES (CTR_S_USRNAM),
+    	CTR_W_GRPLEN	= _WORD,
+    	CTR_T_GRPNAM	= _BYTES (CTR_S_GRPNAM),
+    	CTR_W_IMGLEN	= _WORD,
+    	CTR_T_IMGNAM	= _BYTES (CTR_S_IMGNAM)
+    _ENDDEF (CTR);
+
+!++
+! PRCDEF : process information structure
+!--
+    LITERAL
+    	PRC_S_DEVNAM	= TRM_S_DEVNAM,
+    	PRC_S_ACCNAM	= TRM_S_ACCNAM,
+    	PRC_S_USRNAM	= CTR_S_USRNAM,
+    	PRC_S_IMGNAM	= CTR_S_IMGNAM;
+
+    _DEF (PRC)
+    	PRC_L_FLINK 	= _LONG,
+    	PRC_L_BLINK 	= _LONG,
+    	PRC_L_PID   	= _LONG,
+    	PRC_L_PIOCT 	= _LONG,
+    	PRC_L_TIOCT 	= _LONG,
+    	PRC_L_CPU   	= _LONG,
+    	PRC_Q_PRIVS 	= _QUAD,
+    	PRC_L_UIC   	= _LONG,
+    	PRC_A_IDLIST	= _LONG,
+    	PRC_L_TTDEVCHR	= _LONG,
+    	PRC_W_FLAGS 	= _WORD,
+    	_OVERLAY (PRC_W_FLAGS)
+    	    PRC_V_DECW	= _BIT,
+    	    PRC_V_FAKE	= _BIT,
+    	_ENDOVERLAY
+    	PRC_W_DEVLEN	= _WORD,
+    	PRC_T_DEVNAM	= _BYTES (PRC_S_DEVNAM),
+    	PRC_W_ACCLEN	= _WORD,
+    	PRC_T_ACCNAM	= _BYTES (PRC_S_ACCNAM),
+    	PRC_W_USRLEN	= _WORD,
+    	PRC_T_USRNAM	= _BYTES (PRC_S_USRNAM),
+    	PRC_W_IMGLEN	= _WORD,
+    	PRC_T_IMGNAM	= _BYTES (PRC_S_IMGNAM)
+    _ENDDEF (PRC);
+
+!++
+! PGBLDEF: Private globals
+!--
+    LITERAL
+    	PGBL_S_SCSNAM	= 8;
+
+    _DEF (PGBL)
+    	PGBL_W_SCSLEN	= _WORD,
+    	PGBL_T_SCSNAM	= _BYTES (PGBL_S_SCSNAM)
+    _ENDDEF (PGBL);
+
+!++
+! Other stuff
+!--
+
+    _DEF (CHK)
+    	CHK_L_FLINK 	= _LONG,
+    	CHK_L_BLINK 	= _LONG,
+    	CHK_L_CREC  	= _LONG
+    _ENDDEF (CHK);
+
+! Mailbox IOSB
+
+    _DEF (MIOSB)
+    	MIOSB_W_STATUS	= _WORD,
+    	MIOSB_W_COUNT	= _WORD,
+    	MIOSB_L_PID 	= _LONG
+    _ENDDEF (MIOSB);
+
+    MACRO
+    	TRACE (LEVEL, CTRSTR) [] =
+    	BEGIN
+    	IF .GLOBALS [GBL_V_TRACE] AND (.GLOBALS [GBL_L_DBGMSK] AND LEVEL) NEQ 0
+    	THEN
+    	BEGIN
+    	    EXTERNAL ROUTINE
+    	    	TRACE_PUT_OUTPUT,
+    	    	LIB$SYS_FAO : ADDRESSING_MODE (GENERAL),
+    	    	STR$FREE1_DX : ADDRESSING_MODE (GENERAL);
+    	    %IF NOT %NULL (%REMAINING) %THEN
+    	    	LOCAL _TRCFAO : BLOCK [DSC$K_S_BLN,BYTE];
+    	    	$INIT_DYNDESC (_TRCFAO);
+    	    	LIB$SYS_FAO (%ASCID CTRSTR, 0, _TRCFAO, %REMAINING);
+    	    	TRACE_PUT_OUTPUT (_TRCFAO);
+    	    	STR$FREE1_DX (_TRCFAO);
+    	    %ELSE
+    	    	TRACE_PUT_OUTPUT (%ASCID CTRSTR);
+    	    %FI
+    	END;
+    	END%,
+    	LOG (CTRSTR) [] =
+    	BEGIN
+    	    EXTERNAL ROUTINE
+    	    	LOG_PUT_OUTPUT,
+    	    	LIB$SYS_FAO : ADDRESSING_MODE (GENERAL),
+    	    	STR$FREE1_DX : ADDRESSING_MODE (GENERAL);
+    	    %IF NOT %NULL (%REMAINING) %THEN
+    	    	LOCAL _TRCFAO : BLOCK [DSC$K_S_BLN,BYTE];
+    	    	$INIT_DYNDESC (_TRCFAO);
+    	    	LIB$SYS_FAO (%ASCID CTRSTR, 0, _TRCFAO, %REMAINING);
+    	    	LOG_PUT_OUTPUT (_TRCFAO);
+    	    	STR$FREE1_DX (_TRCFAO);
+    	    %ELSE
+    	    	LOG_PUT_OUTPUT (%ASCID CTRSTR);
+    	    %FI
+    	END%;

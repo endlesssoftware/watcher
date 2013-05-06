@@ -1,0 +1,1908 @@
+%TITLE 'WCP'
+MODULE WCP (IDENT='V1.8-1', MAIN=WCP) =
+BEGIN
+!++
+! FACILITY: 	    WCP
+!
+! ABSTRACT:
+!
+!   Watcher Control Program
+!
+! MODULE DESCRIPTION:
+!
+!   This module contains the routines that implement the Watcher Control
+!   Program.
+!
+! AUTHOR:   	    M. Madison
+!
+! Copyright (c) 2010, Matthew Madison.
+!
+! All rights reserved.
+!
+! Redistribution and use in source and binary forms, with or without
+! modification, are permitted provided that the following conditions
+! are met:
+!
+!     * Redistributions of source code must retain the above
+!       copyright notice, this list of conditions and the following
+!       disclaimer.
+!     * Redistributions in binary form must reproduce the above
+!       copyright notice, this list of conditions and the following
+!       disclaimer in the documentation and/or other materials provided
+!       with the distribution.
+!     * Neither the name of the copyright owner nor the names of any
+!       other contributors may be used to endorse or promote products
+!       derived from this software without specific prior written
+!       permission.
+!
+! THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS
+! "AS IS" AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT
+! LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR
+! A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT
+! OWNER OR CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL,
+! SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT
+! LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE,
+! DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY
+! THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
+! (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
+! OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+!
+! CREATION DATE:    01-SEP-1989
+!
+! MODIFICATION HISTORY:
+!
+!   01-SEP-1989	V1.0	Madison	    Initial coding.
+!   19-JAN-1990	V1.0-1	Madison	    Added /GROUP to WATCH.
+!   20-MAR-1990	V1.0-2	Madison	    Bug fixes, add RESET and SHUTDOWN cmds.
+!   21-MAR-1990	V1.0-3	Madison	    Add SET DECWINDOWS; more bug fixes.
+!   11-APR-1990	V1.1-4	Madison	    Add thresholds on measurements.
+!   12-APR-1990	V1.1-5	Madison	    Change EXCL, OVERR to behave like WATCH cmd.
+!   16-APR-1990	V1.1-6	Madison	    Fix bug in last change.
+!   10-JUL-1990	V1.1-7	Madison	    Fixed stupid parsing bug.
+!   18-OCT-1990	V1.2	Madison	    Force/disconnect stuff should be clearer.
+!   07-JAN-1991	V1.3	Madison	    SET EVENT bug; require OPER for SHUT/RESET.
+!   22-MAR-1991	V1.3-1	Madison	    WATCH wasn't taking default delta metrics.
+!   22-MAR-1991	V1.4	Madison	    Add MULTIWARN support.  (Kimura@HAC)
+!   19-APR-1991	V1.4-1	Madison	    Fix SET DAYS. (kwolters@wellesley)
+!   07-APR-1992	V1.5	Madison	    Add EXC/IMAGE, MULTI/INTER, [NO]ACTION.
+!   03-FEB-1993	V1.6	Madison	    Add /FORCE_EXIT, saving watch_default settings.
+!   24-JUN-1994	V1.7	Madison	    INSWAP, some command handling changes.
+!   17-JUL-1997	V1.8	Madison	    Add EXCLUDE/OPERATOR.
+!   06-SEP-2010 V1.8-1  Sneddon     Updated license to BSD at request of M. Madison.
+!--
+
+    LIBRARY 'SYS$LIBRARY:STARLET';
+    LIBRARY 'WATCHER';
+    LIBRARY 'WCP';
+
+    PSECT
+    	NODEFAULT = $$$COPYRIGHT (READ,NOWRITE,NOEXECUTE,SHARE);
+    OWN
+    	COPYRIGHT : INITIAL (UPLIT PSECT ($$$COPYRIGHT) BYTE 
+    	    ('Copyright (c) 2010 Matthew Madison.  All rights reserved.'));
+
+    FORWARD ROUTINE
+    	WCP,
+    	WCP_HANDLER,
+    	CMD_EXIT,
+    	CMD_QUIT,
+    	CMD_HELP,
+    	CMD_WATCH,
+    	CMD_EXCLUDE,
+    	CMD_OVERRIDE,
+    	CMD_SET,
+    	CMD_SET_EVENT,
+    	CMD_SET_MULTIWARN,
+    	CMD_SET_DAYS,
+    	CMD_SET_WATCH,
+    	CMD_SHOW,
+    	ALT_SHOW_OUTPUT,
+    	CMD_SAVE;
+
+    EXTERNAL ROUTINE
+    	GET_CMD,
+    	LOAD_CONFIG,
+    	SAVE_CONFIG,
+    	PARSE_TIMES,
+    	ASC_TO_PRV_OR,
+    	ASC_TO_OPC_OR,
+    	CVT_ASCTOID,
+    	PARSE_CFGFILE,
+    	G_HAT (LIB$GET_FOREIGN, LIB$CVT_DTB, LIB$GETJPI);
+
+    EXTERNAL
+    	WCP_CMD_CLD, WCP_CLD;
+
+    EXTERNAL LITERAL
+    	WCP__RECNOTFOUND, WCP__IDERR, WCP__UICERR, WCP__NORDCFG,
+    	WCP__READCFG, WCP__NOWRTCFG, WCP__WROTECFG, CLI$_NOCOMD,
+    	WCP__NOOPNOUT, WCP__NOCONTACT, WCP__NOPRIV;
+
+    GLOBAL
+    	TRMQUE	    : QUEDEF,
+    	EXCQUE	    : QUEDEF,
+    	OVRQUE	    : QUEDEF,
+    	GLOBALS	    : GBLDEF,
+    	DEFAULTS    : DFLTDEF,
+    	CFG_CHANGED : INITIAL (0),
+    	CFGFILE	    : BLOCK [DSC$K_S_BLN,BYTE];
+
+    OWN
+    	SHOW_FAB    : $FAB_DECL,
+    	SHOW_RAB    : $RAB_DECL;
+
+%SBTTL 'WCP'
+GLOBAL ROUTINE WCP = 
+BEGIN
+!++
+! FUNCTIONAL DESCRIPTION:
+!
+!   WCP main routine
+!
+! RETURNS:  	cond_value, longword (unsigned), write only, by value
+!
+! PROTOTYPE:
+!
+!   WCP
+!
+! IMPLICIT INPUTS:  None.
+!
+! IMPLICIT OUTPUTS: None.
+!
+! COMPLETION CODES:
+!
+!   SS$_NORMAL:	    	normal successful completion.
+!
+! SIDE EFFECTS:
+!
+!   None.
+!--
+    LOCAL
+    	CMD 	: BLOCK [DSC$K_S_BLN,BYTE],
+    	INPFIL	: BLOCK [DSC$K_S_BLN,BYTE],
+    	TRM 	: REF TRMDEF,
+    	EXC 	: REF EXCDEF,
+    	OVR 	: REF EXCDEF,
+    	STATUS;
+    ENABLE
+    	WCP_HANDLER;
+
+    INIT_DYNDESC (CMD, INPFIL, CFGFILE);
+
+    INIT_QUEUE (TRMQUE, EXCQUE, OVRQUE);
+
+    CH$FILL (%CHAR (0), GBL_S_GBLDEF, GLOBALS);
+    $BINTIM (TIMBUF=%ASCID'0 00:05:00.00', TIMADR=GLOBALS [GBL_Q_INTERVAL]);
+    CH$MOVE (8, GLOBALS [GBL_Q_INTERVAL], GLOBALS [GBL_Q_MWINTVL]);
+    GLOBALS [GBL_V_OPERATOR] = 1;
+    GLOBALS [GBL_L_OPERATOR] = OPC$M_NM_CENTRL;
+
+    CH$FILL (%CHAR (0), DFLT_S_DFLTDEF, DEFAULTS);
+    $BINTIM (TIMBUF=%ASCID'0 00:25:00.00', TIMADR=DEFAULTS [DFLT_Q_WARNTIME]);
+    $BINTIM (TIMBUF=%ASCID'0 00:30:00.00', TIMADR=DEFAULTS [DFLT_Q_FORCETIME]);
+    DEFAULTS [DFLT_V_TIO] = 1;
+    DEFAULTS [DFLT_V_WARN] = 1;
+    DEFAULTS [DFLT_V_DISCON] = 1;
+    DEFAULTS [DFLT_B_PRIMEDAYS] = %X'1F';
+
+    STATUS = LIB$GET_FOREIGN (CMD);
+    IF .STATUS AND .CMD [DSC$W_LENGTH] GTR 0 THEN
+    BEGIN
+    	STR$PREFIX (CMD, %ASCID'WCP ');
+    	CLI$DCL_PARSE (CMD, WCP_CMD_CLD, LIB$GET_FOREIGN, LIB$GET_FOREIGN);
+    	STATUS = CLI$PRESENT (%ASCID'FILE');
+    	IF .STATUS EQL CLI$_PRESENT THEN
+    	    CLI$GET_VALUE (%ASCID'FILE', INPFIL)
+    	ELSE IF .STATUS NEQ CLI$_NEGATED THEN
+    	    STR$COPY_DX (INPFIL, %ASCID'WATCHER_CONFIG');
+    	IF CLI$PRESENT (%ASCID'CMD') EQL CLI$_PRESENT THEN
+    	    CLI$GET_VALUE (%ASCID'CMD', CMD)
+    	ELSE
+    	    STR$FREE1_DX (CMD);
+    END
+    ELSE STR$COPY_DX (INPFIL, %ASCID'WATCHER_CONFIG');
+
+    IF .INPFIL [DSC$W_LENGTH] GTR 0 THEN
+    BEGIN
+    	STATUS = LOAD_CONFIG (INPFIL, %ASCID'SYS$DISK:[].WCFG', CFGFILE);
+    	IF NOT .STATUS THEN
+    	    SIGNAL (WCP__NORDCFG, 1, INPFIL, .STATUS)
+    	ELSE
+    	    SIGNAL (WCP__READCFG, 1, CFGFILE);
+    	STR$FREE1_DX (INPFIL);
+    END;
+
+    IF .CMD [DSC$W_LENGTH] GTR 0 THEN
+    BEGIN
+    	STATUS = CLI$DCL_PARSE (CMD, WCP_CLD, GET_CMD, GET_CMD, %ASCID'WCP> ');
+    	IF .STATUS EQL RMS$_EOF THEN RETURN SS$_NORMAL;
+    	IF NOT .STATUS THEN RETURN (.STATUS OR STS$M_INHIB_MSG);
+    	STATUS = CLI$DISPATCH ();
+    	CMD_EXIT ();
+    	RETURN .STATUS;
+    END;
+
+    WHILE 1 DO
+    BEGIN
+    	STATUS = CLI$DCL_PARSE (0, WCP_CLD, GET_CMD, GET_CMD, %ASCID'WCP> ');
+    	IF .STATUS EQL RMS$_EOF THEN
+    	    STATUS = CMD_EXIT ()
+    	ELSE IF .STATUS THEN
+    	    STATUS = CLI$DISPATCH ();
+    	IF .STATUS EQL RMS$_EOF THEN EXITLOOP;
+    END;
+
+    STR$FREE1_DX (CMD);
+    STR$FREE1_DX (CFGFILE);
+
+    WHILE NOT REMQUE (.TRMQUE [QUE_L_HEAD], TRM) DO
+    	LIB$FREE_VM (%REF (TRM_S_TRMDEF), TRM);
+    WHILE NOT REMQUE (.EXCQUE [QUE_L_HEAD], EXC) DO
+    	LIB$FREE_VM (%REF (EXC_S_EXCDEF), EXC);
+    WHILE NOT REMQUE (.OVRQUE [QUE_L_HEAD], OVR) DO
+    	LIB$FREE_VM (%REF (EXC_S_EXCDEF), OVR);
+
+    SS$_NORMAL
+
+END; ! WCP
+
+%SBTTL 'WCP_HANDLER'
+GLOBAL ROUTINE WCP_HANDLER (SIG : REF VECTOR [,LONG],
+    	    	    MECH : REF VECTOR [,LONG], ENBL : REF VECTOR [,LONG]) = 
+BEGIN
+!++
+! FUNCTIONAL DESCRIPTION:
+!
+!   Condition handler for WCP.
+!
+! RETURNS:  	cond_value, longword (unsigned), write only, by value
+!
+! PROTOTYPE:
+!
+!   WCP_HANDLER
+!
+! IMPLICIT INPUTS:  None.
+!
+! IMPLICIT OUTPUTS: None.
+!
+! COMPLETION CODES:
+!
+!   SS$_NORMAL:	    	normal successful completion.
+!
+! SIDE EFFECTS:
+!
+!   None.
+!--
+    BIND
+    	COND = SIG [1] : BLOCK [,BYTE];
+
+    EXTERNAL LITERAL
+    	CLI$_ABSENT, CLI$_NOCOMD;
+
+    SELECTONE .COND OF
+    SET
+    	[SS$_UNWIND, CLI$_ABSENT, CLI$_NOCOMD] : SS$_NORMAL;
+    	[OTHERWISE] : SS$_RESIGNAL;
+    TES
+
+END;
+
+%SBTTL 'CMD_EXIT'
+GLOBAL ROUTINE CMD_EXIT =
+BEGIN
+!++
+! FUNCTIONAL DESCRIPTION:
+!
+!   WCP EXIT command.  Saves current configuration and returns RMS$_EOF
+!   (as if user pressed CTRL/Z).
+!
+! RETURNS:  	cond_value, longword (unsigned), write only, by value
+!
+! PROTOTYPE:
+!
+!   CMD_EXIT
+!
+! IMPLICIT INPUTS:  None.
+!
+! IMPLICIT OUTPUTS: None.
+!
+! COMPLETION CODES:
+!
+!   SS$_NORMAL:	    	normal successful completion.
+!
+! SIDE EFFECTS:
+!
+!   None.
+!--
+    LOCAL
+    	RSPEC	: BLOCK [DSC$K_S_BLN,BYTE],
+    	FSPEC	: BLOCK [DSC$K_S_BLN,BYTE],
+    	STATUS;
+
+    IF NOT .CFG_CHANGED THEN RETURN RMS$_EOF;
+
+    IF .CFGFILE [DSC$W_LENGTH] EQL 0 THEN
+    BEGIN
+    	LIB$PUT_OUTPUT (%ASCID %STRING ('Enter file name to save to,',
+    	    ' or press RETURN to quit without saving:'));
+    	STATUS = GET_CMD (CFGFILE, %ASCID'_File: ');
+    	IF .CFGFILE [DSC$W_LENGTH] EQL 0 THEN RETURN RMS$_EOF;
+    END;
+
+    INIT_DYNDESC (RSPEC, FSPEC);
+
+    IF NOT PARSE_CFGFILE (CFGFILE, %ASCID'SYS$DISK:[].WCFG', FSPEC)
+    THEN STR$COPY_DX (FSPEC, CFGFILE);
+    
+    STATUS = SAVE_CONFIG (FSPEC, RSPEC);
+    IF NOT .STATUS THEN
+    BEGIN
+    	SIGNAL (WCP__NOWRTCFG, 1, FSPEC);
+    	STR$FREE1_DX (FSPEC);
+    	RETURN SS$_NORMAL
+    END
+    ELSE
+    	SIGNAL (WCP__WROTECFG, 1, RSPEC);
+
+    STR$FREE1_DX (FSPEC);
+    STR$FREE1_DX (RSPEC);
+
+    RMS$_EOF
+
+END; ! CMD_EXIT
+
+%SBTTL 'CMD_QUIT'
+GLOBAL ROUTINE CMD_QUIT =
+BEGIN
+!++
+! FUNCTIONAL DESCRIPTION:
+!
+!   WCP QUIT command, for leaving WCP without saving new configuration.
+!   If configuration has changed
+!
+! RETURNS:  	cond_value, longword (unsigned), write only, by value
+!
+! PROTOTYPE:
+!
+!   CMD_QUIT
+!
+! IMPLICIT INPUTS:  None.
+!
+! IMPLICIT OUTPUTS: None.
+!
+! COMPLETION CODES:
+!
+!   SS$_NORMAL:	    	normal successful completion.
+!
+! SIDE EFFECTS:
+!
+!   None.
+!--
+    LOCAL
+    	STR : BLOCK [DSC$K_S_BLN,BYTE],
+    	STATUS;
+
+    $INIT_DYNDESC (STR);
+
+    IF .CFG_CHANGED THEN
+    BEGIN
+    	STATUS = GET_CMD (STR, %ASCID %STRING ('Configuration has been ',
+    	    'changed.  Quit without saving? [No]: '));
+    	IF NOT .STATUS OR .STR [DSC$W_LENGTH] EQL 0 THEN
+    	    STATUS = SS$_NORMAL
+    	ELSE
+    	BEGIN
+    	    LOCAL CH : BYTE;
+    	    CH = CH$RCHAR (.STR [DSC$A_POINTER]);
+    	    IF .CH NEQ 'Y' AND .CH NEQ 'y' THEN STATUS = SS$_NORMAL
+    	    ELSE STATUS = RMS$_EOF
+    	END;
+    END
+    ELSE STATUS = RMS$_EOF;
+
+    STR$FREE1_DX (STR);
+
+    .STATUS
+
+END; ! CMD_QUIT
+
+%SBTTL 'CMD_HELP'
+GLOBAL ROUTINE CMD_HELP = 
+BEGIN
+!++
+! FUNCTIONAL DESCRIPTION:
+!
+!   WCP HELP command.
+!
+! RETURNS:  	cond_value, longword (unsigned), write only, by value
+!
+! PROTOTYPE:
+!
+!   CMD_HELP
+!
+! IMPLICIT INPUTS:  None.
+!
+! IMPLICIT OUTPUTS: None.
+!
+! COMPLETION CODES:
+!
+!   SS$_NORMAL:	    	normal successful completion.
+!
+! SIDE EFFECTS:
+!
+!   None.
+!--
+    LOCAL
+    	TOPIC	: BLOCK [DSC$K_S_BLN,BYTE],
+    	STATUS;
+
+    $INIT_DYNDESC (TOPIC);
+    STATUS = CLI$GET_VALUE (%ASCID'HELP_REQUEST', TOPIC);
+    LBR$OUTPUT_HELP (LIB$PUT_OUTPUT, 0, TOPIC, %ASCID'WCP_HELPLIB',
+    	%REF (HLP$M_PROMPT), GET_CMD);
+
+    SS$_NORMAL
+
+END; ! CMD_HELP
+
+%SBTTL 'CMD_WATCH'
+GLOBAL ROUTINE CMD_WATCH = 
+BEGIN
+!++
+! FUNCTIONAL DESCRIPTION:
+!
+!   WCP WATCH command.
+!
+! RETURNS:  	cond_value, longword (unsigned), write only, by value
+!
+! PROTOTYPE:
+!
+!   CMD_WATCH
+!
+! IMPLICIT INPUTS:  None.
+!
+! IMPLICIT OUTPUTS: None.
+!
+! COMPLETION CODES:
+!
+!   SS$_NORMAL:	    	normal successful completion.
+!
+! SIDE EFFECTS:
+!
+!   None.
+!--
+    LOCAL
+    	DEVNAM	    : BLOCK [DSC$K_S_BLN,BYTE],
+    	STR 	    : BLOCK [DSC$K_S_BLN,BYTE],
+    	TEMPLATE    : TRMDEF,
+    	TRM 	    : REF TRMDEF,
+    	DEL,
+    	STATUS;
+
+    $INIT_DYNDESC (DEVNAM);
+    $INIT_DYNDESC (STR);
+    CH$FILL (%CHAR (0), TRM_S_TRMDEF, TEMPLATE);
+
+    DEL = CLI$PRESENT (%ASCID'DELETE') EQL CLI$_PRESENT;
+    IF NOT .DEL THEN
+    BEGIN
+    	IF CLI$PRESENT (%ASCID'MEASURE') EQL CLI$_PRESENT THEN
+    	BEGIN
+    	    TEMPLATE [TRM_V_CPU] =
+    	    	CLI$PRESENT (%ASCID'MEASURE.CPU') EQL CLI$_PRESENT;
+    	    IF .TEMPLATE [TRM_V_CPU] THEN
+    	    	IF CLI$GET_VALUE (%ASCID'MEASURE.CPU', STR) THEN
+    	    	    IF .STR [DSC$W_LENGTH] GTR 0 THEN
+    	    	    	LIB$CVT_DTB (.STR [DSC$W_LENGTH], .STR [DSC$A_POINTER],
+    	    	    	    TEMPLATE [TRM_L_DCPU]);
+    	    TEMPLATE [TRM_V_PIO] =
+    	    	CLI$PRESENT (%ASCID'MEASURE.PROCESS_IO') EQL CLI$_PRESENT;
+    	    IF .TEMPLATE [TRM_V_PIO] THEN
+    	    	IF CLI$GET_VALUE (%ASCID'MEASURE.PROCESS_IO', STR) THEN
+    	    	    IF .STR [DSC$W_LENGTH] GTR 0 THEN
+    	    	    	LIB$CVT_DTB (.STR [DSC$W_LENGTH], .STR [DSC$A_POINTER],
+    	    	    	    TEMPLATE [TRM_L_DPIO]);
+    	    TEMPLATE [TRM_V_TIO] =
+    	    	CLI$PRESENT (%ASCID'MEASURE.TERMINAL_IO') EQL CLI$_PRESENT;
+    	    IF .TEMPLATE [TRM_V_TIO] THEN
+    	    	IF CLI$GET_VALUE (%ASCID'MEASURE.TERMINAL_IO', STR) THEN
+    	    	    IF .STR [DSC$W_LENGTH] GTR 0 THEN
+    	    	    	LIB$CVT_DTB (.STR [DSC$W_LENGTH], .STR [DSC$A_POINTER],
+    	    	    	    TEMPLATE [TRM_L_DTIO]);
+    	END
+    	ELSE
+    	BEGIN
+    	    TEMPLATE [TRM_V_TIO] = .DEFAULTS [DFLT_V_TIO];
+    	    TEMPLATE [TRM_L_DTIO] = .DEFAULTS [DFLT_L_DTIO];
+    	    TEMPLATE [TRM_V_PIO] = .DEFAULTS [DFLT_V_PIO];
+    	    TEMPLATE [TRM_L_DPIO] = .DEFAULTS [DFLT_L_DPIO];
+    	    TEMPLATE [TRM_V_CPU] = .DEFAULTS [DFLT_V_CPU];
+    	    TEMPLATE [TRM_L_DCPU] = .DEFAULTS [DFLT_L_DCPU];
+    	END;
+
+    	STATUS = CLI$PRESENT (%ASCID'WARNING');
+    	CH$MOVE (8, DEFAULTS [DFLT_Q_WARNTIME], TEMPLATE [TRM_Q_WARNTIME]);
+    	SELECTONE .STATUS OF
+    	SET
+    	    [CLI$_ABSENT]  : TEMPLATE [TRM_V_WARN] = .DEFAULTS [DFLT_V_WARN];
+    	    [CLI$_NEGATED] : TEMPLATE [TRM_V_WARN] = 0;
+    	    [CLI$_PRESENT] :
+    	    	BEGIN
+    	    	    TEMPLATE [TRM_V_WARN] = 1;
+    	    	    IF CLI$GET_VALUE (%ASCID'WARNING', STR) THEN
+    	    	    	$BINTIM (TIMBUF=STR, TIMADR=TEMPLATE [TRM_Q_WARNTIME]);
+    	    	END;
+    	TES;
+    	    	    
+    	CH$MOVE (8, DEFAULTS [DFLT_Q_FORCETIME], TEMPLATE [TRM_Q_FORCETIME]);
+    	TEMPLATE [TRM_V_FORCE] = .DEFAULTS [DFLT_V_FORCE];
+    	TEMPLATE [TRM_V_DISCON] = .DEFAULTS [DFLT_V_DISCON];
+    	TEMPLATE [TRM_V_EXIT] = .DEFAULTS [DFLT_V_EXIT];
+    	STATUS = CLI$PRESENT (%ASCID'LOGOUT');
+    	IF .STATUS NEQ CLI$_ABSENT THEN
+    	BEGIN
+    	    IF .STATUS EQL CLI$_NEGATED THEN
+    	    	TEMPLATE [TRM_V_FORCE] = TEMPLATE [TRM_V_DISCON] = 
+    	    	    TEMPLATE [TRM_V_EXIT] = 0
+    	    ELSE
+    	    BEGIN
+    	    	TEMPLATE [TRM_V_FORCE] = 1;
+    	    	TEMPLATE [TRM_V_DISCON] = TEMPLATE [TRM_V_EXIT] = 0;
+    	    	IF CLI$GET_VALUE (%ASCID'LOGOUT', STR) THEN
+    	    	    $BINTIM (TIMBUF=STR, TIMADR=TEMPLATE [TRM_Q_FORCETIME]);
+    	    END;
+    	END
+    	ELSE
+    	BEGIN
+    	    STATUS = CLI$PRESENT (%ASCID'DISCONNECT');
+    	    IF .STATUS NEQ CLI$_ABSENT THEN
+    	    BEGIN
+    	    	IF .STATUS EQL CLI$_NEGATED THEN
+    	    	    TEMPLATE [TRM_V_FORCE] = TEMPLATE [TRM_V_DISCON] = 
+    	    	    	TEMPLATE [TRM_V_EXIT ] = 0
+    	    	ELSE
+    	    	BEGIN
+    	    	    TEMPLATE [TRM_V_DISCON] = 1;
+    	    	    TEMPLATE [TRM_V_FORCE] = TEMPLATE [TRM_V_EXIT] = 0;
+    	    	    IF CLI$GET_VALUE (%ASCID'DISCONNECT', STR) THEN
+    	    	    	$BINTIM (TIMBUF=STR, TIMADR=TEMPLATE [TRM_Q_FORCETIME]);
+    	    	END;
+    	    END
+    	    ELSE
+    	    BEGIN
+    	    	STATUS = CLI$PRESENT (%ASCID'FORCE_EXIT');
+    	    	IF .STATUS EQL CLI$_NEGATED THEN
+    	    	    TEMPLATE [TRM_V_FORCE] = TEMPLATE [TRM_V_DISCON] = 
+    	    	    	    TEMPLATE [TRM_V_EXIT] = 0
+    	    	ELSE IF .STATUS EQL CLI$_PRESENT THEN
+    	    	BEGIN
+    	    	    TEMPLATE [TRM_V_EXIT] = 1;
+    	    	    TEMPLATE [TRM_V_FORCE] = TEMPLATE [TRM_V_DISCON] = 0;
+    	    	    IF CLI$GET_VALUE (%ASCID'FORCE_EXIT', STR) THEN
+    	    	    	$BINTIM (TIMBUF=STR, TIMADR=TEMPLATE [TRM_Q_FORCETIME]);
+    	    	END;
+    	    END;
+    	END;
+    END;
+
+    IF CLI$PRESENT (%ASCID'GROUP') EQL CLI$_PRESENT THEN
+    BEGIN
+    	CLI$GET_VALUE (%ASCID'GROUP', STR);
+    	TEMPLATE [TRM_W_GRPLEN] = MIN (.STR [DSC$W_LENGTH], TRM_S_GRPNAM);
+    	CH$MOVE (.TEMPLATE [TRM_W_GRPLEN], .STR [DSC$A_POINTER],
+    	    TEMPLATE [TRM_T_GRPNAM]);
+    END;
+
+    IF CLI$PRESENT (%ASCID'ACCPORNAM') EQL CLI$_PRESENT THEN
+    BEGIN
+    	CLI$GET_VALUE (%ASCID'ACCPORNAM', STR);
+    	TEMPLATE [TRM_W_ACCLEN] = MIN (.STR [DSC$W_LENGTH], TRM_S_ACCNAM);
+    	CH$MOVE (.TEMPLATE [TRM_W_ACCLEN], .STR [DSC$A_POINTER],
+    	    TEMPLATE [TRM_T_ACCNAM]);
+    END
+    ELSE
+    BEGIN
+    	TEMPLATE [TRM_W_ACCLEN] = 1;
+    	CH$WCHAR (%C'*', TEMPLATE [TRM_T_ACCNAM]);
+    END;
+
+    CLI$GET_VALUE (%ASCID'DEVICE', DEVNAM);
+    
+    TRM = .TRMQUE [QUE_L_HEAD];
+    STATUS = (WHILE .TRM NEQA TRMQUE [QUE_L_HEAD] DO
+    	    BEGIN
+    	    	IF CH$EQL (.DEVNAM [DSC$W_LENGTH], .DEVNAM [DSC$A_POINTER],
+    	    	    	    .TRM [TRM_W_DEVLEN], TRM [TRM_T_DEVNAM], %C' ')
+    	    	AND CH$EQL (.TRM [TRM_W_ACCLEN], TRM [TRM_T_ACCNAM],
+    	    	    	.TEMPLATE [TRM_W_ACCLEN], TEMPLATE [TRM_T_ACCNAM])
+    	    	THEN EXITLOOP 1;
+    	    	TRM = .TRM [TRM_L_FLINK];
+    	    END);
+    IF .STATUS LSS 0 THEN
+    BEGIN
+    	IF .DEL THEN
+    	BEGIN
+    	    SIGNAL (WCP__RECNOTFOUND, 0);
+    	    STR$FREE1_DX (STR);
+    	    STR$FREE1_DX (DEVNAM);
+    	    RETURN WCP__RECNOTFOUND;
+    	END
+    	ELSE
+    	BEGIN
+    	    LIB$GET_VM (%REF (TRM_S_TRMDEF), TRM);
+    	    CH$MOVE (TRM_S_TRMDEF-8, TEMPLATE+8, .TRM+8);
+    	    TRM [TRM_W_DEVLEN] = MIN (.DEVNAM [DSC$W_LENGTH], TRM_S_DEVNAM);
+    	    CH$MOVE (.TRM [TRM_W_DEVLEN], .DEVNAM [DSC$A_POINTER],
+    	    	TRM [TRM_T_DEVNAM]);
+    	    INSQUE (.TRM, .TRMQUE [QUE_L_TAIL]);
+    	    CFG_CHANGED = 1;
+    	END;
+    END
+    ELSE
+    BEGIN
+    	CFG_CHANGED = 1;
+    	IF .DEL THEN REMQUE (.TRM, TRM)
+    	ELSE
+    	BEGIN
+    	    CH$MOVE (TRM_S_TRMDEF-8, TEMPLATE+8, .TRM+8);
+    	    TRM [TRM_W_DEVLEN] = MIN (.DEVNAM [DSC$W_LENGTH], TRM_S_DEVNAM);
+    	    CH$MOVE (.TRM [TRM_W_DEVLEN], .DEVNAM [DSC$A_POINTER],
+    	    	TRM [TRM_T_DEVNAM]);
+    	END;
+    END;
+
+    STR$FREE1_DX (STR);
+    STR$FREE1_DX (DEVNAM);
+
+    SS$_NORMAL
+
+END; ! CMD_WATCH
+
+%SBTTL 'CMD_EXCLUDE'
+GLOBAL ROUTINE CMD_EXCLUDE = 
+BEGIN
+!++
+! FUNCTIONAL DESCRIPTION:
+!
+!   WCP EXCLUDE command.
+!
+! RETURNS:  	cond_value, longword (unsigned), write only, by value
+!
+! PROTOTYPE:
+!
+!   CMD_EXCLUDE
+!
+! IMPLICIT INPUTS:  None.
+!
+! IMPLICIT OUTPUTS: None.
+!
+! COMPLETION CODES:
+!
+!   SS$_NORMAL:	    	normal successful completion.
+!
+! SIDE EFFECTS:
+!
+!   None.
+!--
+    LOCAL
+    	EXC 	    : REF EXCDEF,
+    	TEMPLATE    : EXCDEF,
+    	STR 	    : BLOCK [DSC$K_S_BLN,BYTE],
+    	SSTR	    : BLOCK [DSC$K_S_BLN,BYTE] PRESET (
+    	    	    	[DSC$B_DTYPE] = DSC$K_DTYPE_T,
+    	    	    	[DSC$B_CLASS] = DSC$K_CLASS_S),
+    	DEL,
+    	STATUS;
+
+    DEL = CLI$PRESENT (%ASCID'DELETE') EQL CLI$_PRESENT;
+
+    CH$FILL (%CHAR (0), EXC_S_EXCDEF, TEMPLATE);
+    $INIT_DYNDESC (STR);
+
+    IF CLI$PRESENT (%ASCID'PRIVILEGES') EQL CLI$_PRESENT THEN
+    BEGIN
+    	WHILE CLI$GET_VALUE (%ASCID'PRIVILEGES', STR) DO
+    	    ASC_TO_PRV_OR (STR, TEMPLATE [EXC_Q_PRIVMASK]);
+    END;
+
+    IF CLI$PRESENT (%ASCID'UIC') EQL CLI$_PRESENT THEN
+    BEGIN
+    	LOCAL UIC;
+    	CLI$GET_VALUE (%ASCID'UIC', STR);
+    	STATUS = CVT_ASCTOID (STR, UIC);
+    	IF NOT .STATUS THEN
+    	BEGIN
+    	    SIGNAL (WCP__UICERR, 1, STR, .STATUS);
+    	    STR$FREE1_DX (STR);
+    	    RETURN WCP__UICERR;
+    	END;
+    	TEMPLATE [EXC_L_UIC] = .UIC;
+    END
+    ELSE
+    BEGIN
+    	LOCAL UIC;
+    	STATUS = CVT_ASCTOID (%ASCID'[*,*]', UIC);
+    	TEMPLATE [EXC_L_UIC] = .UIC;
+    END;
+
+    IF CLI$PRESENT (%ASCID'TERMINAL') EQL CLI$_PRESENT THEN
+    BEGIN
+    	CLI$GET_VALUE (%ASCID'TERMINAL', STR);
+    	TEMPLATE [EXC_W_TRMNAMLEN] = MIN (.STR [DSC$W_LENGTH], EXC_S_TRMNAM);
+    	CH$MOVE (.TEMPLATE [EXC_W_TRMNAMLEN], .STR [DSC$A_POINTER],
+    	    TEMPLATE [EXC_T_TRMNAM]);
+    END
+    ELSE
+    BEGIN
+    	TEMPLATE [EXC_W_TRMNAMLEN] = 1;
+    	CH$WCHAR (%C'*', TEMPLATE [EXC_T_TRMNAM]);
+    END;
+
+    IF CLI$PRESENT (%ASCID'ACCPORNAM') EQL CLI$_PRESENT THEN
+    BEGIN
+    	CLI$GET_VALUE (%ASCID'ACCPORNAM', STR);
+    	TEMPLATE [EXC_W_ACCNAMLEN] = MIN (.STR [DSC$W_LENGTH], EXC_S_ACCNAM);
+    	CH$MOVE (.TEMPLATE [EXC_W_ACCNAMLEN], .STR [DSC$A_POINTER],
+    	    TEMPLATE [EXC_T_ACCNAM]);
+    END
+    ELSE
+    BEGIN
+    	TEMPLATE [EXC_W_ACCNAMLEN] = 1;
+    	CH$WCHAR (%C'*', TEMPLATE [EXC_T_ACCNAM]);
+    END;
+
+    IF CLI$PRESENT (%ASCID'HOLDING') EQL CLI$_PRESENT THEN
+    BEGIN
+    	CLI$GET_VALUE (%ASCID'HOLDING', STR);
+    	STATUS = $ASCTOID (NAME=STR, ID=TEMPLATE [EXC_L_IDENT]);
+    	IF NOT .STATUS THEN
+    	BEGIN
+    	    SIGNAL (WCP__IDERR, 1, STR, .STATUS);
+    	    STR$FREE1_DX (STR);
+    	    RETURN WCP__IDERR;
+    	END;
+    END;
+
+    TEMPLATE [EXC_V_OPERATOR] = CLI$PRESENT (%ASCID'OPERATOR') EQL CLI$_PRESENT;
+
+    IF CLI$PRESENT (%ASCID'DURING') EQL CLI$_PRESENT THEN
+    BEGIN
+    	WHILE CLI$GET_VALUE (%ASCID'DURING', STR) DO
+    	    PARSE_TIMES (STR,  DEFAULTS [DFLT_B_PRIMEDAYS],
+    	    	TEMPLATE [EXC_AL_TIMES]);
+    END
+    ELSE
+    BEGIN
+    	BIND TIMES = TEMPLATE [EXC_AL_TIMES] : BLOCK [7,LONG];
+    	INCR I FROM 0 TO 6 DO
+    	    TIMES [.I,0,24,0] = %X'FFFFFF';
+    END;
+
+    IF CLI$PRESENT (%ASCID'IMAGE') EQL CLI$_PRESENT THEN
+    BEGIN
+    	CLI$GET_VALUE (%ASCID'IMAGE', STR);
+    	TEMPLATE [EXC_W_IMGNAMLEN] = MIN (EXC_S_IMGNAM, .STR [DSC$W_LENGTH]);
+    	CH$MOVE (.TEMPLATE [EXC_W_IMGNAMLEN], .STR [DSC$A_POINTER],
+    	    TEMPLATE [EXC_T_IMGNAM]);
+    END
+    ELSE
+    BEGIN
+    	TEMPLATE [EXC_W_IMGNAMLEN] = 1;
+    	CH$WCHAR (%C'*', TEMPLATE [EXC_T_IMGNAM]);
+    END;
+
+    WHILE CLI$GET_VALUE (%ASCID'USER', STR) DO
+    BEGIN
+    	EXC = .EXCQUE [QUE_L_HEAD];
+    	WHILE .EXC NEQA EXCQUE [QUE_L_HEAD] DO
+    	BEGIN
+    	    IF CH$EQL (.STR [DSC$W_LENGTH], .STR [DSC$A_POINTER],
+    	    	    .EXC [EXC_W_UNAMELEN], EXC [EXC_T_UNAME], %C' ')
+    	    THEN IF .TEMPLATE [EXC_L_UIC] EQL .EXC [EXC_L_UIC] AND
+    	    	    .TEMPLATE [EXC_V_OPERATOR] EQL .EXC [EXC_V_OPERATOR] AND
+    	    	    .TEMPLATE [EXC_L_IDENT] EQL .EXC [EXC_L_IDENT] AND
+    	    	    CH$EQL (.TEMPLATE [EXC_W_TRMNAMLEN],
+    	    	    	TEMPLATE [EXC_T_TRMNAM], .EXC [EXC_W_TRMNAMLEN],
+    	    	    	EXC [EXC_T_TRMNAM], %C' ') AND
+    	    	    CH$EQL (.TEMPLATE [EXC_W_ACCNAMLEN],
+    	    	    	TEMPLATE [EXC_T_ACCNAM], .EXC [EXC_W_ACCNAMLEN],
+    	    	    	EXC [EXC_T_ACCNAM], %C' ') AND
+    	    	    CH$EQL (.TEMPLATE [EXC_W_IMGNAMLEN],
+    	    	    	TEMPLATE [EXC_T_IMGNAM], .EXC [EXC_W_IMGNAMLEN],
+    	    	    	EXC [EXC_T_IMGNAM], %C' ') AND
+    	    	    CH$EQL (EXC_S_TIMES, TEMPLATE [EXC_AL_TIMES],
+    	    	    	EXC_S_TIMES, EXC [EXC_AL_TIMES], %CHAR (0))
+    	    	THEN EXITLOOP;
+    	    EXC = .EXC [EXC_L_FLINK];
+    	END;
+
+    	IF .DEL THEN
+    	BEGIN
+    	    IF .EXC EQLA EXCQUE [QUE_L_HEAD] THEN
+    	    BEGIN
+    	    	SIGNAL (WCP__RECNOTFOUND, 1, STR);
+    	    	STR$FREE1_DX (STR);
+    	    	RETURN WCP__RECNOTFOUND;
+    	    END
+    	    ELSE
+    	    BEGIN
+    	    	REMQUE (.EXC, EXC);
+    	    	LIB$FREE_VM (%REF (EXC_S_EXCDEF), EXC);
+    	    	CFG_CHANGED = 1;
+    	    END;
+    	END
+    	ELSE IF .EXC EQLA EXCQUE [QUE_L_HEAD] THEN
+    	BEGIN
+    	    LIB$GET_VM (%REF (EXC_S_EXCDEF), EXC);
+    	    CH$MOVE (EXC_S_EXCDEF, TEMPLATE, .EXC);
+    	    EXC [EXC_W_UNAMELEN] = .STR [DSC$W_LENGTH];
+    	    CH$MOVE (.STR [DSC$W_LENGTH], .STR [DSC$A_POINTER],
+    	    	EXC [EXC_T_UNAME]);
+    	    INSQUE (.EXC, .EXCQUE [QUE_L_TAIL]);
+    	    CFG_CHANGED = 1;
+    	END;
+    END;
+
+    STR$FREE1_DX (STR);
+
+    SS$_NORMAL
+
+END; ! CMD_EXCLUDE
+
+%SBTTL 'CMD_OVERRIDE'
+GLOBAL ROUTINE CMD_OVERRIDE = 
+BEGIN
+!++
+! FUNCTIONAL DESCRIPTION:
+!
+!   WCP OVERRIDE command.
+!
+! RETURNS:  	cond_value, longword (unsigned), write only, by value
+!
+! PROTOTYPE:
+!
+!   CMD_OVERRIDE
+!
+! IMPLICIT INPUTS:  None.
+!
+! IMPLICIT OUTPUTS: None.
+!
+! COMPLETION CODES:
+!
+!   SS$_NORMAL:	    	normal successful completion.
+!
+! SIDE EFFECTS:
+!
+!   None.
+!--
+    LOCAL
+    	EXC 	    : REF EXCDEF,
+    	TEMPLATE    : EXCDEF,
+    	STR 	    : BLOCK [DSC$K_S_BLN,BYTE],
+    	SSTR	    : BLOCK [DSC$K_S_BLN,BYTE] PRESET (
+    	    	    	[DSC$B_DTYPE] = DSC$K_DTYPE_T,
+    	    	    	[DSC$B_CLASS] = DSC$K_CLASS_S),
+    	DEL,
+    	STATUS;
+
+    DEL = CLI$PRESENT (%ASCID'DELETE') EQL CLI$_PRESENT;
+
+    CH$FILL (%CHAR (0), EXC_S_EXCDEF, TEMPLATE);
+    $INIT_DYNDESC (STR);
+
+    IF CLI$PRESENT (%ASCID'PRIVILEGES') EQL CLI$_PRESENT THEN
+    BEGIN
+    	WHILE CLI$GET_VALUE (%ASCID'PRIVILEGES', STR) DO
+    	    ASC_TO_PRV_OR (STR, TEMPLATE [EXC_Q_PRIVMASK]);
+    END;
+
+    IF CLI$PRESENT (%ASCID'UIC') EQL CLI$_PRESENT THEN
+    BEGIN
+    	CLI$GET_VALUE (%ASCID'UIC', STR);
+    	STATUS = CVT_ASCTOID (STR, TEMPLATE [EXC_L_UIC]);
+    	IF NOT .STATUS THEN
+    	BEGIN
+    	    SIGNAL (WCP__UICERR, 1, STR, .STATUS);
+    	    STR$FREE1_DX (STR);
+    	    RETURN WCP__UICERR;
+    	END;
+    END
+    ELSE
+    	CVT_ASCTOID (%ASCID'[*,*]', TEMPLATE [EXC_L_UIC]);
+
+    IF CLI$PRESENT (%ASCID'TERMINAL') EQL CLI$_PRESENT THEN
+    BEGIN
+    	CLI$GET_VALUE (%ASCID'TERMINAL', STR);
+    	TEMPLATE [EXC_W_TRMNAMLEN] = MIN (.STR [DSC$W_LENGTH], EXC_S_TRMNAM);
+    	CH$MOVE (.TEMPLATE [EXC_W_TRMNAMLEN], .STR [DSC$A_POINTER],
+    	    TEMPLATE [EXC_T_TRMNAM]);
+    END
+    ELSE
+    BEGIN
+    	TEMPLATE [EXC_W_TRMNAMLEN] = 1;
+    	CH$WCHAR (%C'*', TEMPLATE [EXC_T_TRMNAM]);
+    END;
+
+    IF CLI$PRESENT (%ASCID'ACCPORNAM') EQL CLI$_PRESENT THEN
+    BEGIN
+    	CLI$GET_VALUE (%ASCID'ACCPORNAM', STR);
+    	TEMPLATE [EXC_W_ACCNAMLEN] = MIN (.STR [DSC$W_LENGTH], EXC_S_ACCNAM);
+    	CH$MOVE (.TEMPLATE [EXC_W_ACCNAMLEN], .STR [DSC$A_POINTER],
+    	    TEMPLATE [EXC_T_ACCNAM]);
+    END
+    ELSE
+    BEGIN
+    	TEMPLATE [EXC_W_ACCNAMLEN] = 1;
+    	CH$WCHAR (%C'*', TEMPLATE [EXC_T_ACCNAM]);
+    END;
+
+    IF CLI$PRESENT (%ASCID'HOLDING') EQL CLI$_PRESENT THEN
+    BEGIN
+    	CLI$GET_VALUE (%ASCID'HOLDING', STR);
+    	STATUS = $ASCTOID (NAME=STR, ID=TEMPLATE [EXC_L_IDENT]);
+    	IF NOT .STATUS THEN
+    	BEGIN
+    	    SIGNAL (WCP__IDERR, 1, STR, .STATUS);
+    	    STR$FREE1_DX (STR);
+    	    RETURN WCP__IDERR;
+    	END;
+    END;
+
+    TEMPLATE [EXC_V_OPERATOR] = CLI$PRESENT (%ASCID'OPERATOR') EQL CLI$_PRESENT;
+
+    IF CLI$PRESENT (%ASCID'DURING') EQL CLI$_PRESENT THEN
+    BEGIN
+    	WHILE CLI$GET_VALUE (%ASCID'DURING', STR) DO
+    	    PARSE_TIMES (STR,  DEFAULTS [DFLT_B_PRIMEDAYS],
+    	    	TEMPLATE [EXC_AL_TIMES]);
+    END
+    ELSE
+    BEGIN
+    	BIND TIMES = TEMPLATE [EXC_AL_TIMES] : BLOCK [7,LONG];
+    	INCR I FROM 0 TO 6 DO
+    	    TIMES [.I,0,24,0] = %X'FFFFFF';
+    END;
+
+    IF CLI$PRESENT (%ASCID'IMAGE') EQL CLI$_PRESENT THEN
+    BEGIN
+    	CLI$GET_VALUE (%ASCID'IMAGE', STR);
+    	TEMPLATE [EXC_W_IMGNAMLEN] = MIN (EXC_S_IMGNAM, .STR [DSC$W_LENGTH]);
+    	CH$MOVE (.TEMPLATE [EXC_W_IMGNAMLEN], .STR [DSC$A_POINTER],
+    	    TEMPLATE [EXC_T_IMGNAM]);
+    END
+    ELSE
+    BEGIN
+    	TEMPLATE [EXC_W_IMGNAMLEN] = 1;
+    	CH$WCHAR (%C'*', TEMPLATE [EXC_T_IMGNAM]);
+    END;
+
+    TEMPLATE [EXC_V_METRICS] = CLI$PRESENT (%ASCID'MEASURE') EQL CLI$_PRESENT;
+    IF .TEMPLATE [EXC_V_METRICS] THEN
+    BEGIN
+    	TEMPLATE [EXC_V_CPU] =
+    	    CLI$PRESENT (%ASCID'MEASURE.CPU') EQL CLI$_PRESENT;
+    	IF .TEMPLATE [EXC_V_CPU] THEN
+    	    IF CLI$GET_VALUE (%ASCID'MEASURE.CPU', STR) THEN
+    	    	IF .STR [DSC$W_LENGTH] GTR 0 THEN
+    	    	    LIB$CVT_DTB (.STR [DSC$W_LENGTH], .STR [DSC$A_POINTER],
+    	    	    	    TEMPLATE [EXC_L_DCPU]);
+    	TEMPLATE [EXC_V_PIO] =
+    	    CLI$PRESENT (%ASCID'MEASURE.PROCESS_IO') EQL CLI$_PRESENT;
+    	IF .TEMPLATE [EXC_V_PIO] THEN
+    	    IF CLI$GET_VALUE (%ASCID'MEASURE.PROCESS_IO', STR) THEN
+    	    	IF .STR [DSC$W_LENGTH] GTR 0 THEN
+    	    	    LIB$CVT_DTB (.STR [DSC$W_LENGTH], .STR [DSC$A_POINTER],
+    	    	    	    TEMPLATE [EXC_L_DPIO]);
+    	TEMPLATE [EXC_V_TIO] =
+    	    CLI$PRESENT (%ASCID'MEASURE.TERMINAL_IO') EQL CLI$_PRESENT;
+    	IF .TEMPLATE [EXC_V_TIO] THEN
+    	    IF CLI$GET_VALUE (%ASCID'MEASURE.TERMINAL_IO', STR) THEN
+    	    	IF .STR [DSC$W_LENGTH] GTR 0 THEN
+    	    	    LIB$CVT_DTB (.STR [DSC$W_LENGTH], .STR [DSC$A_POINTER],
+    	    	    	    TEMPLATE [EXC_L_DTIO]);
+    END;
+
+    STATUS = CLI$PRESENT (%ASCID'WARNING');
+    TEMPLATE [EXC_V_OVRWARN] = .STATUS NEQ CLI$_ABSENT;
+    IF .TEMPLATE [EXC_V_OVRWARN] THEN
+    BEGIN
+    	TEMPLATE [EXC_V_WARN] = .STATUS EQL CLI$_PRESENT;
+    	IF .TEMPLATE [EXC_V_WARN] THEN
+    	    IF CLI$GET_VALUE (%ASCID'WARNING', STR) THEN
+    	    	$BINTIM (TIMBUF=STR, TIMADR=TEMPLATE [EXC_Q_WARNTIME])
+    	    ELSE
+    	    	CH$MOVE (8, DEFAULTS [DFLT_Q_WARNTIME],
+    	    	    TEMPLATE [EXC_Q_WARNTIME]);
+
+    END;
+
+    STATUS = CLI$PRESENT (%ASCID'LOGOUT');
+    IF .STATUS NEQ CLI$_ABSENT THEN
+    BEGIN
+    	TEMPLATE [EXC_V_OVRFORCE] = 1;
+    	TEMPLATE [EXC_V_DISCON] = TEMPLATE [EXC_V_EXIT ] = 0;
+    	TEMPLATE [EXC_V_FORCE] = .STATUS EQL CLI$_PRESENT;
+    	IF .TEMPLATE [EXC_V_FORCE] THEN
+    	    IF CLI$GET_VALUE (%ASCID'LOGOUT', STR) THEN
+    	    	$BINTIM (TIMBUF=STR, TIMADR=TEMPLATE [EXC_Q_FORCETIME])
+    	    ELSE
+    	    	CH$MOVE (8, DEFAULTS [DFLT_Q_FORCETIME],
+    	    	    TEMPLATE [EXC_Q_FORCETIME]);
+
+    END
+    ELSE
+    BEGIN
+    	STATUS = CLI$PRESENT (%ASCID'DISCONNECT');
+    	IF .STATUS NEQ CLI$_ABSENT THEN
+    	BEGIN
+    	    TEMPLATE [EXC_V_OVRFORCE] = 1;
+    	    TEMPLATE [EXC_V_FORCE] = TEMPLATE [EXC_V_EXIT] = 0;
+    	    TEMPLATE [EXC_V_DISCON] = .STATUS EQL CLI$_PRESENT;
+    	    IF .TEMPLATE [EXC_V_DISCON] THEN
+    	    	IF CLI$GET_VALUE (%ASCID'DISCONNECT', STR) THEN
+    	    	    $BINTIM (TIMBUF=STR, TIMADR=TEMPLATE [EXC_Q_FORCETIME])
+    	    	ELSE
+    	    	    CH$MOVE (8, DEFAULTS [DFLT_Q_FORCETIME],
+    	    	    	TEMPLATE [EXC_Q_FORCETIME]);
+    	END
+    	ELSE
+    	BEGIN
+    	    STATUS = CLI$PRESENT (%ASCID'FORCE_EXIT');
+    	    IF .STATUS NEQ CLI$_ABSENT THEN
+    	    BEGIN
+    	    	TEMPLATE [EXC_V_OVRFORCE] = 1;
+    	    	TEMPLATE [EXC_V_FORCE] = TEMPLATE [EXC_V_DISCON] = 0;
+    	    	TEMPLATE [EXC_V_EXIT] = .STATUS EQL CLI$_PRESENT;
+    	    	IF .TEMPLATE [EXC_V_EXIT] THEN
+    	    	    IF CLI$GET_VALUE (%ASCID'FORCE_EXIT', STR) THEN
+    	    	    	$BINTIM (TIMBUF=STR, TIMADR=TEMPLATE [EXC_Q_FORCETIME])
+    	    	    ELSE
+    	    	    	CH$MOVE (8, DEFAULTS [DFLT_Q_FORCETIME],
+    	    	    	    TEMPLATE [EXC_Q_FORCETIME]);
+    	    END;
+    	END;
+    END;
+
+    WHILE CLI$GET_VALUE (%ASCID'USER', STR) DO
+    BEGIN
+    	EXC = .OVRQUE [QUE_L_HEAD];
+    	WHILE .EXC NEQA OVRQUE [QUE_L_HEAD] DO
+    	BEGIN
+    	    IF CH$EQL (.STR [DSC$W_LENGTH], .STR [DSC$A_POINTER],
+    	    	.EXC [EXC_W_UNAMELEN], EXC [EXC_T_UNAME], %C' ')
+    	    THEN IF .TEMPLATE [EXC_L_UIC] EQL .EXC [EXC_L_UIC] AND
+    	    	    .TEMPLATE [EXC_V_OPERATOR] EQL .EXC [EXC_V_OPERATOR] AND
+    	    	    .TEMPLATE [EXC_L_IDENT] EQL .EXC [EXC_L_IDENT] AND
+    	    	    CH$EQL (.TEMPLATE [EXC_W_TRMNAMLEN],
+    	    	    	TEMPLATE [EXC_T_TRMNAM], .EXC [EXC_W_TRMNAMLEN],
+    	    	    	EXC [EXC_T_TRMNAM], %C' ') AND
+    	    	    CH$EQL (.TEMPLATE [EXC_W_ACCNAMLEN],
+    	    	    	TEMPLATE [EXC_T_ACCNAM], .EXC [EXC_W_ACCNAMLEN],
+    	    	    	EXC [EXC_T_ACCNAM], %C' ') AND
+    	    	    CH$EQL (.TEMPLATE [EXC_W_IMGNAMLEN],
+    	    	    	TEMPLATE [EXC_T_IMGNAM], .EXC [EXC_W_IMGNAMLEN],
+    	    	    	EXC [EXC_T_IMGNAM], %C' ') AND
+    	    	    CH$EQL (EXC_S_TIMES, TEMPLATE [EXC_AL_TIMES],
+    	    	    	EXC_S_TIMES, EXC [EXC_AL_TIMES], %CHAR (0))
+    	    	THEN EXITLOOP;
+    	    EXC = .EXC [EXC_L_FLINK];
+    	END;
+    	IF .DEL THEN
+    	BEGIN
+    	    IF .EXC EQLA OVRQUE [QUE_L_HEAD] THEN
+    	    BEGIN
+    	    	SIGNAL (WCP__RECNOTFOUND, 1, STR);
+    	    	STR$FREE1_DX (STR);
+    	    	RETURN WCP__RECNOTFOUND;
+    	    END
+    	    ELSE
+    	    BEGIN
+    	    	REMQUE (.EXC, EXC);
+    	    	LIB$FREE_VM (%REF (EXC_S_EXCDEF), EXC);
+    	    	CFG_CHANGED = 1;
+    	    END;
+    	END
+    	ELSE
+    	BEGIN
+    	    IF .EXC EQLA OVRQUE [QUE_L_HEAD] THEN
+    	    BEGIN
+    	    	LIB$GET_VM (%REF (EXC_S_EXCDEF), EXC);
+    	    	INSQUE (.EXC, .OVRQUE [QUE_L_TAIL]);
+    	    END;
+    	    CH$MOVE (EXC_S_EXCDEF-8, TEMPLATE+8, .EXC+8);
+    	    EXC [EXC_W_UNAMELEN] = .STR [DSC$W_LENGTH];
+    	    CH$MOVE (.STR [DSC$W_LENGTH], .STR [DSC$A_POINTER],
+    	    	EXC [EXC_T_UNAME]);
+    	    CFG_CHANGED = 1;
+    	END;
+    END;
+
+    STR$FREE1_DX (STR);
+
+    SS$_NORMAL
+
+END; ! CMD_OVERRIDE
+
+%SBTTL 'CMD_SET'
+GLOBAL ROUTINE CMD_SET = 
+BEGIN
+!++
+! FUNCTIONAL DESCRIPTION:
+!
+!   WCP SET command (for most options).
+!
+! RETURNS:  	cond_value, longword (unsigned), write only, by value
+!
+! PROTOTYPE:
+!
+!   CMD_SET
+!
+! IMPLICIT INPUTS:  None.
+!
+! IMPLICIT OUTPUTS: None.
+!
+! COMPLETION CODES:
+!
+!   SS$_NORMAL:	    	normal successful completion.
+!
+! SIDE EFFECTS:
+!
+!   None.
+!--
+    TABLE (OPTIONS, 'INTERVAL', 'BELL', 'NOBELL', 'DEBUG', 'NODEBUG',
+    	    'VERIFY', 'NOVERIFY', 'DECWINDOWS', 'NODECWINDOWS',
+    	    'ACTION', 'NOACTION', 'INSWAP', 'NOINSWAP');
+
+    LOCAL
+    	STR 	: BLOCK [DSC$K_S_BLN,BYTE],
+    	OPT 	: BLOCK [DSC$K_S_BLN,BYTE],
+    	EQSIGN	: REF BLOCK [,BYTE],
+    	IDX,
+    	STATUS;
+
+    $INIT_DYNDESC (STR);
+    $INIT_DYNDESC (OPT);
+
+    CLI$GET_VALUE (%ASCID'SET_OPT', STR);
+    EQSIGN = CH$FIND_CH (.STR [DSC$W_LENGTH], .STR [DSC$A_POINTER], %C'=');
+    IF CH$FAIL (.EQSIGN) THEN
+    	STR$COPY_DX (OPT, STR)
+    ELSE
+    BEGIN
+    	LOCAL OPTLEN : WORD;
+    	OPTLEN = CH$DIFF (.EQSIGN, .STR [DSC$A_POINTER]);
+    	STR$COPY_R (OPT, OPTLEN, .STR [DSC$A_POINTER]);
+    	STR$COPY_R (STR, %REF (.STR [DSC$W_LENGTH]-.OPTLEN-1), .EQSIGN+1);
+    END;
+    	
+    IDX = (INCR I FROM 0 TO OPTIONS_COUNT-1 DO
+    	    	IF STR$POSITION (.OPTIONS [.I], OPT) EQL 1 THEN EXITLOOP .I);
+    CASE .IDX FROM 0 TO OPTIONS_COUNT-1 OF
+    SET
+    	[0] :
+    	    BEGIN
+    	    	$BINTIM (TIMBUF=STR, TIMADR=GLOBALS [GBL_Q_INTERVAL]);
+    	    	CFG_CHANGED = 1;
+    	    END;
+    	[1] :
+    	    BEGIN
+    	    	GLOBALS [GBL_V_BELL] = 1;
+    	    	CFG_CHANGED = 1;
+    	    END;
+    	[2] :
+    	    BEGIN
+    	    	GLOBALS [GBL_V_BELL] = 0;
+    	    	CFG_CHANGED = 1;
+    	    END;
+    	[3] :
+    	    BEGIN
+    	    	GLOBALS [GBL_V_TRACE] = 1;
+    	    	LIB$CVT_DTB (.STR [DSC$W_LENGTH], .STR [DSC$A_POINTER],
+    	    	    GLOBALS [GBL_L_DBGMSK]);
+    	    	IF .GLOBALS [GBL_L_DBGMSK] EQL 0 THEN
+    	    	    GLOBALS [GBL_L_DBGMSK] = 7;
+    	    	CFG_CHANGED = 1;
+    	    END;
+    	[4] :
+    	    BEGIN
+    	    	GLOBALS [GBL_V_TRACE] = 0;
+    	    	CFG_CHANGED = 1;
+    	    END;
+    	[5] : DEFAULTS [DFLT_V_VERIFY] = 1;
+    	[6] : DEFAULTS [DFLT_V_VERIFY] = 0;
+    	[7] :
+    	    BEGIN
+    	    	GLOBALS [GBL_V_DECW] = 1;
+    	    	CFG_CHANGED = 1;
+    	    END;
+    	[8] :
+    	    BEGIN
+    	    	GLOBALS [GBL_V_DECW] = 0;
+    	    	CFG_CHANGED = 1;
+    	    END;
+    	[9] :
+    	    BEGIN
+    	    	GLOBALS [GBL_V_NOACTION] = 0;
+    	    	CFG_CHANGED = 1;
+    	    END;
+    	[10] :
+    	    BEGIN
+    	    	GLOBALS [GBL_V_NOACTION] = 1;
+    	    	CFG_CHANGED = 1;
+    	    END;
+    	[11] :
+    	    BEGIN
+    	    	GLOBALS [GBL_V_NOINSWAP] = 0;
+    	    	CFG_CHANGED = 1;
+    	    END;
+    	[12] :
+    	    BEGIN
+    	    	GLOBALS [GBL_V_NOINSWAP] = 1;
+    	    	CFG_CHANGED = 1;
+    	    END;
+    	[INRANGE,OUTRANGE] : ;
+    TES;
+
+    STR$FREE1_DX (STR);
+    STR$FREE1_DX (OPT);
+
+    SS$_NORMAL
+
+END; ! CMD_SET
+
+%SBTTL 'CMD_SET_EVENT'
+GLOBAL ROUTINE CMD_SET_EVENT = 
+BEGIN
+!++
+! FUNCTIONAL DESCRIPTION:
+!
+!   WCP SET_EVENT command.
+!
+! RETURNS:  	cond_value, longword (unsigned), write only, by value
+!
+! PROTOTYPE:
+!
+!   CMD_SET_EVENT
+!
+! IMPLICIT INPUTS:  None.
+!
+! IMPLICIT OUTPUTS: None.
+!
+! COMPLETION CODES:
+!
+!   SS$_NORMAL:	    	normal successful completion.
+!
+! SIDE EFFECTS:
+!
+!   None.
+!--
+    LOCAL
+    	STR 	: BLOCK [DSC$K_S_BLN,BYTE],
+    	STATUS;
+
+    GLOBALS [GBL_V_OPERATOR] = GLOBALS [GBL_L_OPERATOR] = 0;
+    GLOBALS [GBL_V_LOGFILE] = GLOBALS [GBL_W_LOGFLEN] = 0;
+
+    CFG_CHANGED = 1;
+
+    IF CLI$PRESENT (%ASCID'EVENT_LOG') EQL CLI$_NEGATED THEN
+    	RETURN SS$_NORMAL;
+
+    $INIT_DYNDESC (STR);
+
+    IF CLI$PRESENT (%ASCID'OPERATOR') EQL CLI$_PRESENT THEN
+    BEGIN
+    	GLOBALS [GBL_V_OPERATOR] = 1;
+    	WHILE CLI$GET_VALUE (%ASCID'OPERATOR', STR) DO
+    	    ASC_TO_OPC_OR (STR, GLOBALS [GBL_L_OPERATOR]);
+    END;
+
+    IF CLI$PRESENT (%ASCID'FILE') EQL CLI$_PRESENT THEN
+    BEGIN
+    	GLOBALS [GBL_V_LOGFILE] = 1;
+    	CLI$GET_VALUE (%ASCID'FILE', STR);
+    	GLOBALS [GBL_W_LOGFLEN] = MIN (.STR [DSC$W_LENGTH], GBL_S_LOGFNAM);
+    	CH$MOVE (.GLOBALS [GBL_W_LOGFLEN], .STR [DSC$A_POINTER],
+    	    GLOBALS [GBL_T_LOGFNAM]);
+    END;
+
+    STR$FREE1_DX (STR);
+
+    SS$_NORMAL
+
+END; ! CMD_SET_EVENT
+
+%SBTTL 'CMD_SET_MULTIWARN'
+GLOBAL ROUTINE CMD_SET_MULTIWARN = 
+BEGIN
+!++
+! FUNCTIONAL DESCRIPTION:
+!
+!   WCP SET_MULTIWARN command.
+!
+! RETURNS:  	cond_value, longword (unsigned), write only, by value
+!
+! PROTOTYPE:
+!
+!   CMD_SET_MULTIWARN
+!
+! IMPLICIT INPUTS:  None.
+!
+! IMPLICIT OUTPUTS: None.
+!
+! COMPLETION CODES:
+!
+!   SS$_NORMAL:	    	normal successful completion.
+!
+! SIDE EFFECTS:
+!
+!   None.
+!--
+    LOCAL
+    	STR 	: BLOCK [DSC$K_S_BLN,BYTE],
+    	TMPQ	: BLOCK [8,BYTE],
+    	STATUS;
+
+    IF CLI$PRESENT (%ASCID'MULTIWARN') EQL CLI$_NEGATED THEN
+    BEGIN
+    	IF .GLOBALS [GBL_V_MULTIWARN] THEN
+    	BEGIN
+    	    CFG_CHANGED = 1;
+    	    GLOBALS [GBL_V_MULTIWARN] = 0;
+    	END;
+    	RETURN SS$_NORMAL;
+    END;
+
+    CFG_CHANGED = .CFG_CHANGED OR (NOT .GLOBALS [GBL_V_MULTIWARN]);
+    GLOBALS [GBL_V_MULTIWARN] = 1;
+
+    IF CLI$PRESENT (%ASCID'INTERVAL') EQL CLI$_PRESENT THEN
+    BEGIN
+    	$INIT_DYNDESC (STR);
+    	CLI$GET_VALUE (%ASCID'INTERVAL', STR);
+    	$BINTIM (TIMBUF=STR, TIMADR=TMPQ);
+    	CFG_CHANGED = .CFG_CHANGED OR CH$NEQ (8, TMPQ, 8,
+    	    	    	    GLOBALS [GBL_Q_MWINTVL], %CHAR (0));
+    	CH$MOVE (8, TMPQ, GLOBALS [GBL_Q_MWINTVL]);
+    	STR$FREE1_DX (STR);
+    END;
+
+    SS$_NORMAL
+
+END; ! CMD_SET_MULTIWARN
+
+%SBTTL 'CMD_SET_DAYS'
+GLOBAL ROUTINE CMD_SET_DAYS = 
+BEGIN
+!++
+! FUNCTIONAL DESCRIPTION:
+!
+!   WCP SET DAYS command.
+!
+! RETURNS:  	cond_value, longword (unsigned), write only, by value
+!
+! PROTOTYPE:
+!
+!   CMD_SET_DAYS
+!
+! IMPLICIT INPUTS:  None.
+!
+! IMPLICIT OUTPUTS: None.
+!
+! COMPLETION CODES:
+!
+!   SS$_NORMAL:	    	normal successful completion.
+!
+! SIDE EFFECTS:
+!
+!   None.
+!--
+    TABLE (DAYS, 'MONDAY', 'TUESDAY', 'WEDNESDAY', 'THURSDAY', 'FRIDAY',
+    	'SATURDAY', 'SUNDAY');
+
+    LOCAL
+    	STR 	: BLOCK [DSC$K_S_BLN,BYTE],
+    	QUAL	: BLOCK [DSC$K_S_BLN,BYTE],
+    	PRIME,
+    	DAY,
+    	STATUS;
+
+    $INIT_DYNDESC (STR);
+    $INIT_DYNDESC (QUAL);
+
+    PRIME = CLI$PRESENT (%ASCID'PRIMARY') EQL CLI$_PRESENT;
+    IF .PRIME THEN
+    BEGIN
+    	STR$COPY_DX (QUAL, %ASCID'PRIMARY');
+    	DEFAULTS [DFLT_B_PRIMEDAYS] = 0;
+    END
+    ELSE
+    BEGIN
+    	STR$COPY_DX (QUAL, %ASCID'SECONDARY');
+    	DEFAULTS [DFLT_B_PRIMEDAYS] = -1;
+    END;
+
+    WHILE CLI$GET_VALUE (QUAL, STR) DO
+    BEGIN
+    	BIND DAYMASK = DEFAULTS [DFLT_B_PRIMEDAYS] : BLOCK [1,BYTE];
+    	DAY = (INCR I FROM 0 TO 6 DO
+    	    	    IF STR$POSITION (.DAYS [.I], STR) EQL 1 THEN EXITLOOP .I);
+    	IF .DAY GEQ 0 THEN
+    	    DAYMASK [0,.DAY,1,0] = .PRIME;
+    END;
+
+    STR$FREE1_DX (STR);
+    STR$FREE1_DX (QUAL);
+
+    SS$_NORMAL
+
+END; ! CMD_SET_DAYS
+
+%SBTTL 'CMD_SET_WATCH'
+GLOBAL ROUTINE CMD_SET_WATCH = 
+BEGIN
+!++
+! FUNCTIONAL DESCRIPTION:
+!
+!   WCP SET WATCH command.
+!
+! RETURNS:  	cond_value, longword (unsigned), write only, by value
+!
+! PROTOTYPE:
+!
+!   CMD_SET_WATCH
+!
+! IMPLICIT INPUTS:  None.
+!
+! IMPLICIT OUTPUTS: None.
+!
+! COMPLETION CODES:
+!
+!   SS$_NORMAL:	    	normal successful completion.
+!
+! SIDE EFFECTS:
+!
+!   None.
+!--
+    LOCAL
+    	STR 	: BLOCK [DSC$K_S_BLN,BYTE],
+    	STATUS;
+
+    $INIT_DYNDESC (STR);
+
+    STATUS = CLI$PRESENT (%ASCID'WARNING');
+    SELECTONE .STATUS OF
+    SET
+    	[CLI$_PRESENT] :
+    	    BEGIN
+    	    	DEFAULTS [DFLT_V_WARN] = 1;
+    	    	IF CLI$GET_VALUE (%ASCID'WARNING', STR) THEN
+    	    	    $BINTIM (TIMBUF=STR, TIMADR=DEFAULTS [DFLT_Q_WARNTIME])
+    	    	ELSE
+    	    	    $BINTIM (TIMBUF=%ASCID'0 00:25:00',
+    	    	    	TIMADR=DEFAULTS [DFLT_Q_WARNTIME]);
+    	    END;
+    	[CLI$_NEGATED] : DEFAULTS [DFLT_V_WARN] = 0;
+    	[OTHERWISE] : ;
+    TES;
+
+    STATUS = CLI$PRESENT (%ASCID'LOGOUT');
+    SELECTONE .STATUS OF
+    SET
+    	[CLI$_PRESENT] :
+    	    BEGIN
+    	    	DEFAULTS [DFLT_V_FORCE] = 1;
+    	    	DEFAULTS [DFLT_V_DISCON] = DEFAULTS [DFLT_V_EXIT] = 0;
+    	    	IF CLI$GET_VALUE (%ASCID'LOGOUT', STR) THEN
+    	    	    $BINTIM (TIMBUF=STR, TIMADR=DEFAULTS [DFLT_Q_FORCETIME])
+    	    	ELSE
+    	    	    $BINTIM (TIMBUF=%ASCID'0 00:30:00',
+    	    	    	TIMADR=DEFAULTS [DFLT_Q_FORCETIME]);
+    	    END;
+    	[CLI$_NEGATED] :
+    	    BEGIN
+    	    	DEFAULTS [DFLT_V_DISCON] = 0;
+    	    	DEFAULTS [DFLT_V_FORCE] = 0;
+    	    	DEFAULTS [DFLT_V_EXIT] = 0;
+    	    END;
+    	[OTHERWISE] : ;
+    TES;
+
+    STATUS = CLI$PRESENT (%ASCID'DISCONNECT');
+    SELECTONE .STATUS OF
+    SET
+    	[CLI$_PRESENT] :
+    	    BEGIN
+    	    	DEFAULTS [DFLT_V_DISCON] = 1;
+    	    	DEFAULTS [DFLT_V_FORCE] = DEFAULTS [DFLT_V_EXIT] = 0;
+    	    	IF CLI$GET_VALUE (%ASCID'DISCONNECT', STR) THEN
+    	    	    $BINTIM (TIMBUF=STR, TIMADR=DEFAULTS [DFLT_Q_FORCETIME])
+    	    	ELSE
+    	    	    $BINTIM (TIMBUF=%ASCID'0 00:30:00',
+    	    	    	TIMADR=DEFAULTS [DFLT_Q_FORCETIME]);
+    	    END;
+    	[CLI$_NEGATED] :
+    	    BEGIN
+    	    	DEFAULTS [DFLT_V_DISCON] = 0;
+    	    	DEFAULTS [DFLT_V_FORCE] = 0;
+    	    	DEFAULTS [DFLT_V_EXIT] = 0;
+    	    END;
+    	[OTHERWISE] : ;
+    TES;
+
+    STATUS = CLI$PRESENT (%ASCID'FORCE_EXIT');
+    SELECTONE .STATUS OF
+    SET
+    	[CLI$_PRESENT] :
+    	    BEGIN
+    	    	DEFAULTS [DFLT_V_EXIT] = 1;
+    	    	DEFAULTS [DFLT_V_FORCE] = DEFAULTS [DFLT_V_DISCON] = 0;
+    	    	IF CLI$GET_VALUE (%ASCID'FORCE_EXIT', STR) THEN
+    	    	    $BINTIM (TIMBUF=STR, TIMADR=DEFAULTS [DFLT_Q_FORCETIME])
+    	    	ELSE
+    	    	    $BINTIM (TIMBUF=%ASCID'0 00:30:00',
+    	    	    	TIMADR=DEFAULTS [DFLT_Q_FORCETIME]);
+    	    END;
+    	[CLI$_NEGATED] :
+    	    BEGIN
+    	    	DEFAULTS [DFLT_V_DISCON] = 0;
+    	    	DEFAULTS [DFLT_V_FORCE] = 0;
+    	    	DEFAULTS [DFLT_V_EXIT] = 0;
+    	    END;
+    	[OTHERWISE] : ;
+    TES;
+
+    IF CLI$PRESENT (%ASCID'MEASURE') EQL CLI$_PRESENT THEN
+    BEGIN
+    	DEFAULTS [DFLT_V_CPU] = DEFAULTS [DFLT_V_PIO] =
+    	    DEFAULTS [DFLT_V_TIO] = DEFAULTS [DFLT_L_DCPU] =
+    	    DEFAULTS [DFLT_L_DPIO] = DEFAULTS [DFLT_L_DTIO] = 0;
+    	DEFAULTS [DFLT_V_CPU] =
+    	    CLI$PRESENT (%ASCID'MEASURE.CPU') EQL CLI$_PRESENT;
+    	IF .DEFAULTS [DFLT_V_CPU] THEN
+    	    IF CLI$GET_VALUE (%ASCID'MEASURE.CPU', STR) THEN
+    	    	IF .STR [DSC$W_LENGTH] GTR 0 THEN
+    	    	    LIB$CVT_DTB (.STR [DSC$W_LENGTH], .STR [DSC$A_POINTER],
+    	    	    	    DEFAULTS [DFLT_L_DCPU]);
+    	DEFAULTS [DFLT_V_PIO] =
+    	    CLI$PRESENT (%ASCID'MEASURE.PROCESS_IO') EQL CLI$_PRESENT;
+    	IF .DEFAULTS [DFLT_V_PIO] THEN
+    	    IF CLI$GET_VALUE (%ASCID'MEASURE.PROCESS_IO', STR) THEN
+    	    	IF .STR [DSC$W_LENGTH] GTR 0 THEN
+    	    	    LIB$CVT_DTB (.STR [DSC$W_LENGTH], .STR [DSC$A_POINTER],
+    	    	    	    DEFAULTS [DFLT_L_DPIO]);
+    	DEFAULTS [DFLT_V_TIO] =
+    	    CLI$PRESENT (%ASCID'MEASURE.TERMINAL_IO') EQL CLI$_PRESENT;
+    	IF .DEFAULTS [DFLT_V_TIO] THEN
+    	    IF CLI$GET_VALUE (%ASCID'MEASURE.TERMINAL_IO', STR) THEN
+    	    	IF .STR [DSC$W_LENGTH] GTR 0 THEN
+    	    	    LIB$CVT_DTB (.STR [DSC$W_LENGTH], .STR [DSC$A_POINTER],
+    	    	    	    DEFAULTS [DFLT_L_DTIO]);
+    END;
+
+    STR$FREE1_DX (STR);
+
+    SS$_NORMAL
+
+END; ! WCP_SET_WATCH
+
+%SBTTL 'CMD_SHOW'
+GLOBAL ROUTINE CMD_SHOW = 
+BEGIN
+!++
+! FUNCTIONAL DESCRIPTION:
+!
+!   WCP SHOW command.
+!
+! RETURNS:  	cond_value, longword (unsigned), write only, by value
+!
+! PROTOTYPE:
+!
+!   CMD_SHOW
+!
+! IMPLICIT INPUTS:  None.
+!
+! IMPLICIT OUTPUTS: None.
+!
+! COMPLETION CODES:
+!
+!   SS$_NORMAL:	    	normal successful completion.
+!
+! SIDE EFFECTS:
+!
+!   None.
+!--
+    TABLE (OPTIONS, 'ALL', 'DEFAULTS', 'GLOBALS', 'WATCH', 'EXCLUDE',
+    	'OVERRIDE', 'EVENT_LOG', 'INTERVAL', 'BELL', 'DEBUG', 'DAYS', 'FILE',
+    	'DECWINDOWS', 'MULTIWARN', 'ACTION', 'INSWAP');
+
+    EXTERNAL ROUTINE
+    	SHOW_WATCHES,
+    	SHOW_EXCLUDES,
+    	SHOW_OVERRIDES,
+    	SHOW_EVENT_LOG,
+    	SHOW_INTERVAL,
+    	SHOW_BELL,
+    	SHOW_DEBUG,
+    	SHOW_WATCH_DEFAULTS,
+    	SHOW_DAYS,
+    	SHOW_FILE,
+    	SHOW_DECW,
+    	SHOW_MULTIWARN,
+    	SHOW_ACTION,
+    	SHOW_INSWAP;
+
+    LOCAL
+    	STR 	: BLOCK [DSC$K_S_BLN,BYTE],
+    	OUTRTN,
+    	OUTCMD,
+    	OPT,
+    	STATUS;
+
+    $INIT_DYNDESC (STR);
+    CLI$GET_VALUE (%ASCID'SHOW_OPT', STR);
+
+    OPT = (INCR I FROM 0 TO OPTIONS_COUNT-1 DO
+    	    IF STR$POSITION (.OPTIONS [.I], STR) EQL 1 THEN EXITLOOP .I);
+
+    OUTCMD = CLI$PRESENT (%ASCID'COMMAND') EQL CLI$_PRESENT;
+
+    OUTRTN = LIB$PUT_OUTPUT;
+    IF CLI$PRESENT (%ASCID'OUTPUT') EQL CLI$_PRESENT THEN
+    BEGIN
+    	CLI$GET_VALUE (%ASCID'OUTPUT', STR);
+    	$FAB_INIT (FAB=SHOW_FAB, FNA=.STR [DSC$A_POINTER],
+    	    FNS=MIN (.STR [DSC$W_LENGTH], 255),
+    	    DNM='SYS$DISK:[].DAT', FAC=PUT, SHR=SHRPUT, RAT=CR);
+    	STATUS = $CREATE (FAB=SHOW_FAB);
+    	IF .STATUS THEN
+    	BEGIN
+    	    $RAB_INIT (RAB=SHOW_RAB, FAB=SHOW_FAB);
+    	    STATUS = $CONNECT (RAB=SHOW_RAB);
+    	    IF .STATUS THEN OUTRTN = ALT_SHOW_OUTPUT
+    	    ELSE SIGNAL (WCP__NOOPNOUT, STR, .STATUS, .SHOW_RAB [RAB$L_STV]);
+    	END
+    	ELSE SIGNAL (WCP__NOOPNOUT, STR, .STATUS, .SHOW_FAB [FAB$L_STV]);
+    END;
+
+    IF (.OUTRTN EQLA LIB$PUT_OUTPUT) OR .STATUS THEN
+    SELECT .OPT OF
+    SET
+    	[0,11]	    : SHOW_FILE (.OUTRTN, .OUTCMD);
+    	[0,3]	    : SHOW_WATCHES (.OUTRTN, .OUTCMD);
+    	[0,4]	    : SHOW_EXCLUDES (.OUTRTN, .OUTCMD);
+    	[0,5]	    : SHOW_OVERRIDES (.OUTRTN, .OUTCMD);
+    	[0,2,6]     : SHOW_EVENT_LOG (.OUTRTN, .OUTCMD);
+    	[0,2,7]	    : SHOW_INTERVAL (.OUTRTN, .OUTCMD);
+    	[0,2,8]	    : SHOW_BELL (.OUTRTN, .OUTCMD);
+    	[0,2,9]	    : SHOW_DEBUG (.OUTRTN, .OUTCMD);
+    	[0,1]	    : SHOW_WATCH_DEFAULTS (.OUTRTN, .OUTCMD);
+    	[0,1,10]    : SHOW_DAYS (.OUTRTN, .OUTCMD);
+    	[0,2,12]    : SHOW_DECW (.OUTRTN, .OUTCMD);
+    	[0,2,13]    : SHOW_MULTIWARN (.OUTRTN, .OUTCMD);
+    	[0,2,14]    : SHOW_ACTION (.OUTRTN, .OUTCMD);
+    	[0,2,15]    : SHOW_INSWAP (.OUTRTN, .OUTCMD);
+    	[ALWAYS]    : IF NOT .OUTCMD THEN (.OUTRTN) (%ASCID'');
+    TES;
+
+    IF (.OUTRTN EQLA ALT_SHOW_OUTPUT) AND .STATUS THEN $CLOSE (FAB=SHOW_FAB);
+
+    STR$FREE1_DX (STR);
+
+    SS$_NORMAL
+
+END; ! CMD_SHOW
+
+%SBTTL 'ALT_SHOW_OUTPUT'
+ROUTINE ALT_SHOW_OUTPUT (STR_A) = 
+BEGIN
+!++
+! FUNCTIONAL DESCRIPTION:
+!
+!   Alternate output routine for SHOW commands.  Used only when
+!   output is redirected via the /OUTPUT qualifier.
+!
+! RETURNS:  	cond_value, longword (unsigned), write only, by value
+!
+! PROTOTYPE:
+!
+!   ALT_SHOW_OUTPUT
+!
+! IMPLICIT INPUTS:  None.
+!
+! IMPLICIT OUTPUTS: None.
+!
+! COMPLETION CODES:
+!
+!   RMS$_NORMAL:    	normal successful completion.
+!
+! SIDE EFFECTS:
+!
+!   None.
+!--
+    BIND
+    	STR = .STR_A : BLOCK [,BYTE];
+
+    SHOW_RAB [RAB$L_RBF] = .STR [DSC$A_POINTER];
+    SHOW_RAB [RAB$W_RSZ] = .STR [DSC$W_LENGTH];
+
+    $PUT (RAB=SHOW_RAB)
+
+END; ! ALT_SHOW_OUTPUT
+
+%SBTTL 'CMD_SAVE'
+GLOBAL ROUTINE CMD_SAVE = 
+BEGIN
+!++
+! FUNCTIONAL DESCRIPTION:
+!
+!   WCP SAVE command.
+!
+! RETURNS:  	cond_value, longword (unsigned), write only, by value
+!
+! PROTOTYPE:
+!
+!   CMD_SAVE
+!
+! IMPLICIT INPUTS:  None.
+!
+! IMPLICIT OUTPUTS: None.
+!
+! COMPLETION CODES:
+!
+!   SS$_NORMAL:	    	normal successful completion.
+!
+! SIDE EFFECTS:
+!
+!   None.
+!--
+    LOCAL
+    	FSPEC	: BLOCK [DSC$K_S_BLN,BYTE],
+    	STATUS;
+
+    $INIT_DYNDESC (FSPEC);
+    IF CLI$PRESENT (%ASCID'FILESPEC') EQL CLI$_PRESENT THEN
+    	CLI$GET_VALUE (%ASCID'FILESPEC', FSPEC)
+    ELSE IF .CFGFILE [DSC$W_LENGTH] GTR 0 THEN
+    	PARSE_CFGFILE (CFGFILE, 0, FSPEC)
+    ELSE
+    BEGIN
+    	STATUS = GET_CMD (FSPEC, %ASCID'_File: ');
+    	IF NOT .STATUS OR .FSPEC [DSC$W_LENGTH] EQL 0 THEN RETURN SS$_NORMAL;
+    END;
+
+    STATUS = SAVE_CONFIG (FSPEC, CFGFILE);
+    IF .STATUS THEN
+    BEGIN
+    	CFG_CHANGED = 0;
+    	SIGNAL (WCP__WROTECFG, 1, CFGFILE);
+    END
+    ELSE
+    	SIGNAL (WCP__NOWRTCFG, 1, FSPEC);
+
+    STR$FREE1_DX (FSPEC);
+
+    SS$_NORMAL
+
+END; ! CMD_SAVE
+
+%SBTTL 'CMD_RESET'
+GLOBAL ROUTINE CMD_RESET = 
+BEGIN
+!++
+! FUNCTIONAL DESCRIPTION:
+!
+!   Sends a RESET request to the WATCHER process currently running.
+!
+! RETURNS:  	cond_value, longword (unsigned), write only, by value
+!
+! PROTOTYPE:
+!
+!   CMD_RESET
+!
+! IMPLICIT INPUTS:  None.
+!
+! IMPLICIT OUTPUTS: None.
+!
+! COMPLETION CODES:
+!
+!   SS$_NORMAL:	    	normal successful completion.
+!
+! SIDE EFFECTS:
+!
+!   None.
+!--
+    LOCAL
+    	CHN 	: WORD,
+    	IOSB	: VECTOR [4,WORD],
+    	PRVMSK	: BLOCK [8,BYTE],
+    	MSGCODE,
+    	STATUS;
+
+    LIB$GETJPI (%REF (JPI$_CURPRIV), 0, 0, PRVMSK);
+    IF NOT .PRVMSK [PRV$V_OPER] THEN
+    BEGIN
+    	SIGNAL (WCP__NOPRIV, 1, %ASCID'OPER');
+    	RETURN SS$_NORMAL;
+    END;
+
+    STATUS = $ASSIGN (DEVNAM=%ASCID'WATCHER_MBOX', CHAN=CHN);
+    IF NOT .STATUS THEN
+    	SIGNAL (WCP__NOCONTACT, 0, .STATUS)
+    ELSE
+    BEGIN
+    	MSGCODE = WATCHER_K_MSGTYPE_RESET;
+    	STATUS = $QIOW (CHAN=.CHN, IOSB=IOSB,
+    	    FUNC=IO$_WRITEVBLK OR IO$M_NOW OR IO$M_NORSWAIT,
+    	    P1=MSGCODE, P2=%ALLOCATION (MSGCODE));
+    	$DASSGN (CHAN=.CHN);
+    	IF .STATUS THEN STATUS = .IOSB [0];
+    	IF NOT .STATUS THEN
+    	    SIGNAL (WCP__NOCONTACT, 0, .STATUS);
+    END;
+
+    SS$_NORMAL
+
+END; ! CMD_RESET
+
+%SBTTL 'CMD_SHUTDOWN'
+GLOBAL ROUTINE CMD_SHUTDOWN = 
+BEGIN
+!++
+! FUNCTIONAL DESCRIPTION:
+!
+!   Sends a SHUTDOWN request to the WATCHER process currently running.
+!
+! RETURNS:  	cond_value, longword (unsigned), write only, by value
+!
+! PROTOTYPE:
+!
+!   CMD_SHUTDOWN
+!
+! IMPLICIT INPUTS:  None.
+!
+! IMPLICIT OUTPUTS: None.
+!
+! COMPLETION CODES:
+!
+!   SS$_NORMAL:	    	normal successful completion.
+!
+! SIDE EFFECTS:
+!
+!   None.
+!--
+    LOCAL
+    	CHN 	: WORD,
+    	IOSB	: VECTOR [4,WORD],
+    	PRVMSK	: BLOCK [8,BYTE],
+    	MSGCODE,
+    	STATUS;
+
+    LIB$GETJPI (%REF (JPI$_CURPRIV), 0, 0, PRVMSK);
+    IF NOT .PRVMSK [PRV$V_OPER] THEN
+    BEGIN
+    	SIGNAL (WCP__NOPRIV, 1, %ASCID'OPER');
+    	RETURN SS$_NORMAL;
+    END;
+
+    STATUS = $ASSIGN (DEVNAM=%ASCID'WATCHER_MBOX', CHAN=CHN);
+    IF NOT .STATUS THEN
+    	SIGNAL (WCP__NOCONTACT, 0, .STATUS)
+    ELSE
+    BEGIN
+    	MSGCODE = WATCHER_K_MSGTYPE_SHUTDOWN;
+    	STATUS = $QIOW (CHAN=.CHN, IOSB=IOSB,
+    	    FUNC=IO$_WRITEVBLK OR IO$M_NOW OR IO$M_NORSWAIT,
+    	    P1=MSGCODE, P2=%ALLOCATION (MSGCODE));
+    	$DASSGN (CHAN=.CHN);
+    	IF .STATUS THEN STATUS = .IOSB [0];
+    	IF NOT .STATUS THEN
+    	    SIGNAL (WCP__NOCONTACT, 0, .STATUS);
+    END;
+
+    SS$_NORMAL
+
+END; ! CMD_SHUTDOWN
+
+END
+ELUDOM

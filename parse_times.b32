@@ -1,0 +1,291 @@
+%TITLE 'PARSE_TIMES'
+MODULE PARSE_TIMES (IDENT='V1.1-4') =
+BEGIN
+!++
+! FACILITY: 	    WCP
+!
+! ABSTRACT: 	    Routine for parsing day/time lists.
+!
+! MODULE DESCRIPTION:
+!
+!   This module contains routines that parse things.  All of these routines
+!   use LIB$TPARSE to do the major parsing work.  All of the routines also
+!   use extended TPARSE argument blocks for storing things to keep things
+!   modular.  When a token needs to be saved, an action routine is named
+!   in the transition and the user argument is a constant which indicates
+!   to the action routine which argument in the extended argument block
+!   should be modified.  Some of the argument blocks and numbering schemes
+!   are set up so as to allow direct offsetting from the argument pointer
+!   in the action routine (so be careful when modifying).
+!
+! AUTHOR:   	    M. Madison
+!
+! Copyright (c) 2010, Matthew Madison.
+!
+! All rights reserved.
+!
+! Redistribution and use in source and binary forms, with or without
+! modification, are permitted provided that the following conditions
+! are met:
+!
+!     * Redistributions of source code must retain the above
+!       copyright notice, this list of conditions and the following
+!       disclaimer.
+!     * Redistributions in binary form must reproduce the above
+!       copyright notice, this list of conditions and the following
+!       disclaimer in the documentation and/or other materials provided
+!       with the distribution.
+!     * Neither the name of the copyright owner nor the names of any
+!       other contributors may be used to endorse or promote products
+!       derived from this software without specific prior written
+!       permission.
+!
+! THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS
+! "AS IS" AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT
+! LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR
+! A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT
+! OWNER OR CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL,
+! SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT
+! LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE,
+! DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY
+! THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
+! (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
+! OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+!
+! CREATION DATE:    01-MAY-1989
+!
+! MODIFICATION HISTORY:
+!
+!   01-MAY-1989	    V1.0    	Madison	    Initial coding.
+!   16-NOV-1989	    V1.1-1  	Madison	    Update for WATCHER V2.
+!   10-JUL-1990	    V1.1-2  	Madison	    Fix stupid DOW bug.
+!   01-JAN-2005     V1.1-3      Madison     IA64 support.
+!   06-SEP-2010     V1.1-4      Sneddon     Updated license to BSD at request of M. Madison.
+!--
+
+    LIBRARY 'SYS$LIBRARY:STARLET';
+    LIBRARY 'SYS$LIBRARY:TPAMAC';
+    LIBRARY 'WATCHER';
+
+    FORWARD ROUTINE
+    	PARSE_TIMES,
+    	PT_STORE;
+
+%IF NOT %BLISS(BLISS32V) %THEN
+    MACRO
+    	LIB$TPARSE = LIB$TABLE_PARSE%;
+%FI
+
+    EXTERNAL ROUTINE
+    	LIB$ANALYZE_SDESC   : BLISS ADDRESSING_MODE (GENERAL),
+    	LIB$TPARSE  	    : BLISS ADDRESSING_MODE (GENERAL);
+
+    MACRO
+    	TPA_A_P1    	=   TPA$C_LENGTH0+00,0,32,0%,
+    	TPA_A_P2    	=   TPA$C_LENGTH0+04,0,32,0%,
+    	TPA_A_P3    	=   TPA$C_LENGTH0+08,0,32,0%,
+    	TPA_A_P4    	=   TPA$C_LENGTH0+12,0,32,0%,
+    	TPA_A_P5    	=   TPA$C_LENGTH0+16,0,32,0%,
+    	TPA_A_P6    	=   TPA$C_LENGTH0+20,0,32,0%,
+    	TPA_A_P7    	=   TPA$C_LENGTH0+24,0,32,0%;
+
+    LITERAL
+    	PT_K_SECONDARY	= -1,
+    	PT_K_PRIMARY	= 0;
+
+%SBTTL 'State table for PARSE_TIMES'
+
+    $INIT_STATE (PT_STATE, PT_KEY);
+
+    $STATE (DAYNAME,
+    	('SECONDARY',, PT_STORE,,, PT_K_SECONDARY),
+    	('PRIMARY',, PT_STORE,,, PT_K_PRIMARY),
+    	('MONDAY',, PT_STORE,,, 1),
+    	('TUESDAY',, PT_STORE,,, 2),
+    	('WEDNESDAY',, PT_STORE,,, 3),
+    	('THURSDAY',, PT_STORE,,, 4),
+    	('FRIDAY',, PT_STORE,,, 5),
+    	('SATURDAY',, PT_STORE,,, 6),
+    	('SUNDAY',, PT_STORE,,, 7));
+
+    $STATE (,
+    	(':',),
+    	(TPA$_EOS, TPA$_EXIT, PT_STORE,,, 99));
+
+    $STATE (OPNPAR,
+    	('(',),
+    	(TPA$_LAMBDA,));
+
+    $STATE (NUM1,
+    	(TPA$_DECIMAL,, PT_STORE,,, 88));
+
+    $STATE (HYPCOM,
+    	(')', TPA$_EXIT, PT_STORE,,, 89),
+    	('-',),
+    	(',', NUM1, PT_STORE,,, 89),
+    	(TPA$_EOS, TPA$_EXIT, PT_STORE,,, 89));
+
+    $STATE (NUM2,
+    	(TPA$_DECIMAL, EXPCOM, PT_STORE,,, 90));
+
+    $STATE (EXPCOM,
+    	(',', NUM1),
+    	(')', TPA$_EXIT),
+    	(TPA$_EOS, TPA$_EXIT));
+
+
+%SBTTL 'PARSE_TIMES'
+GLOBAL ROUTINE PARSE_TIMES (STR_A, PRIM_A, BITS_A) =
+BEGIN
+!++
+! FUNCTIONAL DESCRIPTION:
+!
+!   This routine parses WCFG time lists of the form
+!   	    day : (hour-range[,...])
+!   and OR's the resultant activated bits into a 7-longword bitvector
+!   (one longword per day, only bits 0-23 used per longword).
+!
+! RETURNS:  	cond_value, longword (unsigned), write only, by value
+!
+! PROTOTYPE:
+!
+!   PARSE_TIMES str, prim, bits
+!
+! IMPLICIT INPUTS:  None.
+!
+! IMPLICIT OUTPUTS: None.
+!
+! COMPLETION CODES:
+!
+!   SS$_NORMAL:	    	normal successful completion.
+!
+! SIDE EFFECTS:
+!
+!   None.
+!--
+
+    BIND
+    	STR 	= .STR_A    : BLOCK [DSC$K_S_BLN,BYTE];
+
+    LITERAL
+    	TPA_C_LENGTH	= TPA$C_LENGTH0 + 16,
+    	TPA_K_COUNT 	= TPA$K_COUNT0 + 4;
+
+    LOCAL
+    	TPABLK	: BLOCK [TPA_C_LENGTH,BYTE],
+    	LEN 	: WORD,
+    	DOW 	: ALIAS,
+    	NUM1	: ALIAS;
+
+    LIB$ANALYZE_SDESC (STR, LEN, TPABLK [TPA$L_STRINGPTR]);
+    TPABLK [TPA$L_COUNT] = TPA_K_COUNT;
+    TPABLK [TPA$L_OPTIONS] = 0;
+    TPABLK [TPA$V_ABBRFM] = 1;
+    TPABLK [TPA$L_STRINGCNT] = .LEN;
+    TPABLK [TPA_A_P1] = DOW;
+    TPABLK [TPA_A_P2] = NUM1;
+    TPABLK [TPA_A_P3] = .PRIM_A;
+    TPABLK [TPA_A_P4] = .BITS_A;
+
+    LIB$TPARSE (TPABLK, PT_STATE, PT_KEY)
+
+END; ! PARSE_TIMES
+
+%SBTTL 'PT_STORE'
+%IF NOT %BLISS(BLISS32V) %THEN
+ROUTINE PT_STORE (ARGLST : REF VECTOR [,LONG]) =
+BEGIN
+
+    BIND
+    	OPTIONS	= ARGLST[1],
+    	STRLEN	= ARGLST[2],
+    	STRPTR	= ARGLST[3],
+    	TOKLEN	= ARGLST[4],
+    	TOKPTR	= ARGLST[5],
+    	CHAR	= ARGLST[6] 	: BYTE,
+    	NUMBER	= ARGLST[7],
+    	PARAM	= ARGLST[8],
+    	DOW_A	= ARGLST[9],
+    	NUM1_A	= ARGLST[10],
+    	PRIM_A	= ARGLST[11],
+    	BITS_A	= ARGLST[12];
+%ELSE
+ROUTINE PT_STORE (OPTIONS, STRLEN, STRPTR, TOKLEN, TOKPTR, CHAR : BYTE,
+    	    NUMBER, PARAM, DOW_A, NUM1_A, PRIM_A, BITS_A) =
+BEGIN
+%FI
+!++
+! FUNCTIONAL DESCRIPTION:
+!
+!   Stores values for PARSE_TIMES.
+!
+! RETURNS:  	cond_value, longword (unsigned), write only, by value
+!
+! PROTOTYPE:
+!
+!   PT_STORE  opt, strl, strp, tokl, tokp, chr, num, par, dow, num1, prim, bits
+!
+! IMPLICIT INPUTS:  None.
+!
+! IMPLICIT OUTPUTS: None.
+!
+! COMPLETION CODES:
+!
+!   SS$_NORMAL:	    	normal successful completion.
+!
+! SIDE EFFECTS:
+!
+!   None.
+!--
+    BIND
+    	DOW 	= .DOW_A,
+    	NUM1	= .NUM1_A,
+    	PRIM	= .PRIM_A   : BITVECTOR [6],
+    	BITS	= .BITS_A   : BLOCK [7,LONG];
+
+    IF .PARAM LSS 8 THEN
+    	DOW = .PARAM
+    ELSE
+    SELECTONE .PARAM OF
+    SET
+    	[99] :
+    	    IF .DOW LSS 1 THEN
+    	    BEGIN
+    	    	INCR I FROM 0 TO 6 DO
+    	    	    IF .PRIM [.I] EQL (.DOW EQL PT_K_PRIMARY) THEN
+    	    	    	BITS [.I,0,24,0] = %X'FFFFFF';
+    	    END
+    	    ELSE
+    	    	BITS [.DOW,0,24,0] = %X'FFFFFF';
+
+    	[88] : NUM1 = MAX (MIN (.NUMBER, 23), 0);
+
+    	[89] :
+    	    IF .DOW LSS 1 THEN
+    	    BEGIN
+    	    	INCR I FROM 0 TO 6 DO
+    	    	    IF .PRIM [.I] EQL (.DOW EQL PT_K_PRIMARY) THEN
+    	    	    	BITS [.I,.NUM1,1,0] = 1;
+    	    END
+    	    ELSE
+    	    	BITS [.DOW,.NUM1,1,0] = 1;
+
+    	[90] :
+    	    IF .DOW LSS 1 THEN
+    	    BEGIN
+    	    	INCR I FROM 0 TO 6 DO
+    	    	    IF .PRIM [.I] EQL (.DOW EQL PT_K_PRIMARY) THEN
+    	    	    	INCR J FROM .NUM1 TO MAX (MIN (.NUMBER, 23), 0) DO
+    	    	    	    BITS [.I,.J,1,0] = 1;
+    	    END
+    	    ELSE
+    	    	INCR J FROM .NUM1 TO MAX (MIN (.NUMBER, 23), 0) DO
+    	    	    BITS [.DOW-1,.J,1,0] = 1;
+    TES;
+
+    SS$_NORMAL
+
+END; ! PT_STORE
+
+END
+ELUDOM

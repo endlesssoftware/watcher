@@ -1,0 +1,111 @@
+%TITLE 'FORCE_EXIT'
+MODULE x (IDENT='V1.0-1', ADDRESSING_MODE (EXTERNAL=GENERAL),
+    	  MAIN=FORCE_EXIT) =
+BEGIN
+!++
+! FACILITY: 	    FORCE_EXIT
+!
+! ABSTRACT: 	    Executes a $FORCEX system service against
+!   	    	    a process.
+!
+! MODULE DESCRIPTION:
+!
+!   This module provides a mechanism for using the $FORCEX
+!   system service from DCL.
+!
+! AUTHOR:   	    M. Madison
+!
+! Copyright (c) 2010, Matthew Madison.
+!
+! All rights reserved.
+!
+! Redistribution and use in source and binary forms, with or without
+! modification, are permitted provided that the following conditions
+! are met:
+!
+!     * Redistributions of source code must retain the above
+!       copyright notice, this list of conditions and the following
+!       disclaimer.
+!     * Redistributions in binary form must reproduce the above
+!       copyright notice, this list of conditions and the following
+!       disclaimer in the documentation and/or other materials provided
+!       with the distribution.
+!     * Neither the name of the copyright owner nor the names of any
+!       other contributors may be used to endorse or promote products
+!       derived from this software without specific prior written
+!       permission.
+!
+! THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS
+! "AS IS" AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT
+! LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR
+! A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT
+! OWNER OR CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL,
+! SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT
+! LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE,
+! DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY
+! THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
+! (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
+! OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+!
+! CREATION DATE:    15-FEB-1999
+!
+! MODIFICATION HISTORY:
+!
+!   15-FEB-1999	V1.0	Madison	    Initial coding.
+!   06-SEP-2010 V1.0-1  Sneddon     Updated license to BSD at request of M. Madison.
+!--
+
+    LIBRARY 'SYS$LIBRARY:STARLET';
+
+    EXTERNAL ROUTINE
+    	LIB$GET_FOREIGN,
+    	LIB$CVT_HTB,
+    	STR$FREE1_DX;
+
+
+%SBTTL 'FORCE_EXIT'
+GLOBAL ROUTINE FORCE_EXIT = 
+BEGIN
+!++
+! FUNCTIONAL DESCRIPTION:
+!
+!   Gets the process ID from the command line, and executes
+!   $FORCEX to force the process to exit.
+!
+! RETURNS:  	cond_value, longword (unsigned), write only, by value
+!
+! PROTOTYPE:
+!
+!   FORCE_EXIT
+!
+! IMPLICIT INPUTS:  None.
+!
+! IMPLICIT OUTPUTS: None.
+!
+! COMPLETION CODES:
+!
+!   SS$_NORMAL:	    	normal successful completion.
+!
+! SIDE EFFECTS:	    None.
+!--
+    LOCAL
+    	str 	: BLOCK [DSC$K_S_BLN,BYTE],
+    	pid,
+    	status;
+
+    $INIT_DYNDESC (str);
+    status = LIB$GET_FOREIGN (str);
+    IF .status THEN
+    BEGIN
+    	status = LIB$CVT_HTB (.str [DSC$W_LENGTH], .str [DSC$A_POINTER], pid);
+    	IF .status THEN
+    	    status = $FORCEX (PIDADR=pid, CODE=SS$_FORCEDEXIT);
+    	STR$FREE1_DX (str);
+    END;
+
+    .status
+
+END; ! FORCE_EXIT
+
+END
+ELUDOM

@@ -1,0 +1,1227 @@
+%TITLE 'WATCHER'
+MODULE WATCHER (IDENT='V4.0', MAIN=WATCHER) =
+BEGIN
+!++
+! FACILITY: 	    WATCHER
+!
+! ABSTRACT: 	    WATCHER main program.
+!
+! MODULE DESCRIPTION:
+!
+!   WATCHER main module.
+!
+! AUTHOR:   	    M. Madison
+!
+! Copyright (c) 2010, Matthew Madison.
+!
+! All rights reserved.
+!
+! Redistribution and use in source and binary forms, with or without
+! modification, are permitted provided that the following conditions
+! are met:
+!
+!     * Redistributions of source code must retain the above
+!       copyright notice, this list of conditions and the following
+!       disclaimer.
+!     * Redistributions in binary form must reproduce the above
+!       copyright notice, this list of conditions and the following
+!       disclaimer in the documentation and/or other materials provided
+!       with the distribution.
+!     * Neither the name of the copyright owner nor the names of any
+!       other contributors may be used to endorse or promote products
+!       derived from this software without specific prior written
+!       permission.
+!
+! THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS
+! "AS IS" AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT
+! LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR
+! A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT
+! OWNER OR CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL,
+! SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT
+! LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE,
+! DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY
+! THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
+! (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
+! OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+!
+! CREATION DATE:    28-NOV-1989
+!
+! MODIFICATION HISTORY:
+!
+!   28-NOV-1989	V1.0	Madison	    Initial coding.
+!   15-MAR-1990	V2.0	Madison	    Complete initial coding, rename version.
+!   21-MAR-1990	V2.0-1	Madison	    Start adding DECW support.
+!   11-APR-1990	V2.1-2	Madison	    Add thresholds on measurements.
+!   12-APR-1990	V2.1-3	Madison	    Fix identifier-checking bug.
+!   16-APR-1990 V2.1-4	Madison	    (change in WCP)
+!   20-APR-1990	V2.1-5	Madison	    (change to WATCHER_STARTUP)
+!   27-APR-1990	V2.1-6	Madison	    Fix bug in device names w/no SCSNODE.
+!   04-MAY-1990	V2.1-7	Madison	    Fix WCP bug.
+!   05-JUL-1990	V2.1-8	Madison	    Fix underscore problem with WS devices.
+!   10-JUL-1990	V2.1-9	Madison	    Fix stupid WCP bug.
+!   17-OCT-1990	V2.2	Madison	    Fix count group check code.
+!   31-OCT-1990	V2.2-1	Madison	    Fix bug in DECW_DISPLAY.
+!   02-NOV-1990	V2.2-2	Madison	    Add TOD to logout messages (Ward@Harris)
+!   12-NOV-1990	V2.2-3	Madison	    Add trace support to COLLECT.
+!   13-NOV-1990	V2.3	Madison	    Don't barf on suspended processes.
+!   03-JAN-1991	V2.4	Madison	    Can use JPI$_RIGHTSLIST w/VMS V5.4.
+!   04-MAR-1991	V2.5	Madison	    Eliminate username compares in ct grp chks.
+!   21-MAR-1991	V2.5-1	Madison	    Fix warning bug (mnk@hac.com)
+!   25-MAR-1991	V2.6	Madison	    Multiwarn support; force chk precedes warn.
+!   26-MAR-1991	V2.6-1	Madison	    Flush log & trace files (mnk@hac)
+!   07-APR-1992	V2.7	Madison	    Add IMGNAM, NOACTION, MULTIWARN interval.
+!   03-FEB-1993	V2.8	Madison	    Add /FORCE_EXIT support.
+!   20-MAR-1993	V2.8-1	Madison	    Fixed support for forced image exits.
+!   24-JUN-1994	V2.9	Madison	    Better handling of override transitions.
+!   01-SEP-1994	V2.9-1	Madison	    Better handling of VMS version dependencies
+!   	    	    	    	    in the disconnect code.
+!   21-NOV-1994	V2.9-2	Madison	    Set the last-changed time stamp to the
+!   	    	    	    	    current date/time when allocating a CTR.
+!   26-JAN-1999	V3.0	Madison	    DECwindows improvements; assume VAX V5.4 or later.
+!   05-MAR-2000	V3.1-1	Madison	    Eliminate any potential memory leaks.
+!   01-JAN-2005 V3.2    Madison     IA64 support.
+!   06-SEP-2010 V4.0    Sneddon     Updated license to BSD at request of M. Madison.
+!--
+
+    LIBRARY 'SYS$LIBRARY:STARLET';
+    LIBRARY 'WATCHER';
+    LIBRARY 'WATCHER_PRIVATE';
+
+    PSECT
+    	NODEFAULT = $$$COPYRIGHT (READ,NOWRITE,NOEXECUTE,SHARE);
+    OWN
+    	COPYRIGHT : INITIAL (UPLIT PSECT ($$$COPYRIGHT) BYTE 
+    	    ('Copyright (c) 2010  Matthew Madison.  All rights reserved.'));
+
+    FORWARD ROUTINE
+    	WATCHER,
+    	INIT	    : NOVALUE,
+    	EXCLOVER,
+    	ON_COUNT_LIST,
+    	WATCHING,
+    	CHANGED,
+    	UPDATE_COUNTER_FOR_OVERRIDE : NOVALUE,
+    	CHECK_MBOX  : NOVALUE,
+    	MBX_AST,
+    	EXIT_HANDLER;
+
+    EXTERNAL ROUTINE
+    	COLLECT_PROCESS_INFO,
+    	LOAD_CONFIG,
+    	WARN,
+    	FORCE,
+    	FLUSH_LOG,
+    	LOCK_DISCONNECT_CODE,
+    	MEM_GETCTR, MEM_FREECTR,
+    	MEM_FREEPRC,
+    	MEM_GETCHK, MEM_FREECHK,
+    	G_HAT (LIB$FREE_VM, LIB$SUB_TIMES, LIB$DAY_OF_WEEK, STR$MATCH_WILD, LIB$GET_EF);
+
+    EXTERNAL LITERAL
+    	STR$_MATCH, LIB$_NORMAL,
+    	WATCHER__NOCFG;
+
+    GLOBAL
+    	GLOBALS	    : GBLDEF,
+    	PGLOBALS    : PGBLDEF,
+    	TRMQUE	    : QUEDEF,
+    	EXCQUE	    : QUEDEF,
+    	OVRQUE	    : QUEDEF;
+
+    OWN
+    	COUNTQ	    : QUEDEF,
+    	NOWTIME	    : BLOCK [8,BYTE],
+    	MBXCHN	    : WORD INITIAL (0),
+    	MBXEFN,
+    	SETAST	    : INITIAL (0),
+    	FINAL_STATUS,
+    	EXHBLK	    : VECTOR [4,LONG] PRESET (
+    	    	    	[1] = EXIT_HANDLER,
+    	    	    	[2] = 1,
+    	    	    	[3] = FINAL_STATUS);
+
+%SBTTL 'WATCHER'
+GLOBAL ROUTINE WATCHER = 
+BEGIN
+!++
+! FUNCTIONAL DESCRIPTION:
+!
+!   WATCHER main program.
+!
+! RETURNS:  	cond_value, longword (unsigned), write only, by value
+!
+! PROTOTYPE:
+!
+!   WATCHER
+!
+! IMPLICIT INPUTS:  None.
+!
+! IMPLICIT OUTPUTS: None.
+!
+! COMPLETION CODES:
+!
+!   SS$_NORMAL:	    	normal successful completion.
+!
+! SIDE EFFECTS:
+!
+!   None.
+!--
+    LOCAL
+    	PINFOQ	: QUEDEF,
+    	CHKQUE	: QUEDEF,
+    	CHK 	: REF CHKDEF,
+    	P   	: REF PRCDEF,
+    	C   	: REF CTRDEF,
+    	DELTA	: BLOCK [8,BYTE],
+    	DIFF	: BLOCK [8,BYTE],
+    	STATUS;
+
+
+    INIT_QUEUE (PINFOQ, CHKQUE);
+
+!+
+!   Make sure the virtual-terminal disconnect code
+!   is locked down (it executes at high IPL
+!-
+    STATUS = LOCK_DISCONNECT_CODE ();
+    IF NOT .STATUS THEN SIGNAL_STOP (.STATUS);
+
+    INIT ();
+
+    WHILE 1 DO
+    BEGIN
+
+    	TRACE (DBG_M_MAIN, '*** Checking mailbox ***');
+
+    	CHECK_MBOX ();
+
+    	C = .COUNTQ [QUE_L_HEAD];
+    	WHILE .C NEQA COUNTQ [QUE_L_HEAD] DO
+    	BEGIN
+    	    C [CTR_V_VALID] = 0;
+    	    C = .C [CTR_L_FLINK];
+    	END;
+
+    	$GETTIM (TIMADR=NOWTIME);
+
+    	TRACE (DBG_M_MAIN,
+    	    '*** Collecting process information at !%D ***', NOWTIME);
+
+    	COLLECT_PROCESS_INFO (PINFOQ);
+
+    	WHILE NOT REMQUE (.PINFOQ [QUE_L_HEAD], P) DO
+    	BEGIN
+
+    	    TRACE (DBG_M_MAIN,
+    	    	'Process: PID=!XL, user=!AD, term=!AD, accpor=!AD',
+    	    	.P [PRC_L_PID], .P [PRC_W_USRLEN], P [PRC_T_USRNAM],
+    	    	.P [PRC_W_DEVLEN], P [PRC_T_DEVNAM], .P [PRC_W_ACCLEN],
+    	    	P [PRC_T_ACCNAM]);
+
+    	    IF NOT EXCLOVER (.P, EXCQUE) THEN
+    	    BEGIN
+    	    	STATUS = ON_COUNT_LIST (.P, C);
+    	    	IF .STATUS THEN
+    	    	BEGIN
+    	    	    LOCAL OVR : REF EXCDEF;
+    	    	    TRACE (DBG_M_MAIN, '  -- Process found on count list');
+    	    	    IF EXCLOVER (.P, OVRQUE, OVR) THEN
+    	    	    BEGIN
+    	    	    	IF .C [CTR_A_OVERRIDE] NEQA .OVR THEN 
+    	    	    	    UPDATE_COUNTER_FOR_OVERRIDE (.C, .OVR);
+    	    	    END
+    	    	    ELSE IF .C [CTR_A_OVERRIDE] NEQA 0 THEN
+    	    	    	    UPDATE_COUNTER_FOR_OVERRIDE (.C, 0);
+    	    	END
+    	    	ELSE
+    	    	BEGIN
+    	    	    STATUS = WATCHING (.P, C);
+    	    	    IF .STATUS THEN
+    	    	    	TRACE (DBG_M_MAIN, '  -- Terminal found on watch list');
+    	    	END;
+    	    	IF .STATUS THEN
+    	    	    IF NOT CHANGED (.P, .C) THEN
+    	    	    BEGIN
+    	    	    	TRACE (DBG_M_MAIN,
+    	    	    	    '  -- Queueing count record for checking');
+    	    	    	MEM_GETCHK (CHK);
+    	    	    	CHK [CHK_L_CREC] = .C;
+    	    	    	INSQUE (.CHK, .CHKQUE [QUE_L_TAIL]);
+    	    	    END
+    	    	    ELSE IF .C [CTR_V_FAKE] THEN
+    	    	    	TRACE (DBG_M_MAIN, '  -- This was a "fake" process');
+    	    END
+    	    ELSE
+    	    BEGIN
+!+
+!   If this process has transitioned from the count list to the
+!   exclusion list, let's remove it from the count list now.
+!-
+    	    	TRACE (DBG_M_MAIN, ' -- Process found on exclude list');
+    	    	IF ON_COUNT_LIST (.P, C) THEN
+    	    	BEGIN
+    	    	    REMQUE (.C, C);
+    	    	    MEM_FREECTR (C);
+    	    	END;
+    	    END;
+
+    	    MEM_FREEPRC (P);
+
+    	END;
+
+    	TRACE (DBG_M_MAIN, '*** End of process loop ***');
+
+    	WHILE NOT REMQUE (.CHKQUE [QUE_L_HEAD], CHK) DO
+    	BEGIN
+    	    BIND CTR = .CHK [CHK_L_CREC] : CTRDEF;
+    	    LOCAL DOCHK;
+
+    	    TRACE (DBG_M_MAIN, 'Check for warn/force: PID=!XL, user=!AD',
+    	    	.CTR [CTR_L_PID], .CTR [CTR_W_USRLEN], CTR [CTR_T_USRNAM]);
+
+    	    DOCHK = NOT .CTR [CTR_V_FAKE];
+    	    IF .CTR [CTR_W_GRPLEN] GTR 0 AND NOT .CTR [CTR_V_FAKE] THEN
+    	    BEGIN
+    	    	LOCAL C : REF CTRDEF;
+
+    	    	TRACE (DBG_M_MAIN, '  -- Terminal is part of count group !AD',
+    	    	    .CTR [CTR_W_GRPLEN], CTR [CTR_T_GRPNAM]);
+
+    	    	C = .COUNTQ [QUE_L_HEAD];
+    	    	WHILE .C NEQA COUNTQ DO
+    	    	BEGIN
+    	    	    IF CH$EQL (.C [CTR_W_GRPLEN], C [CTR_T_GRPNAM],
+    	    	    	    .CTR [CTR_W_GRPLEN], CTR [CTR_T_GRPNAM], %C' ') 
+    	    	    THEN
+    	    	    	IF .C [CTR_V_VALID] AND NOT .C [CTR_V_FAKE] AND
+    	    	    	    .C [CTR_V_CHANGED] THEN EXITLOOP;
+    	    	    C = .C [CTR_L_FLINK];
+    	    	END;
+    	    	DOCHK = .C EQLA COUNTQ;
+    	    	IF NOT .DOCHK THEN
+    	    	    TRACE (DBG_M_MAIN,
+    	    	    	'  -- Warn/force aborted, !AD in group !AD changed.',
+    	    	    	.C [CTR_W_DEVLEN], C [CTR_T_DEVNAM],
+    	    	    	.C [CTR_W_GRPLEN], C [CTR_T_GRPNAM]);
+    	    END;
+
+    	    IF .DOCHK THEN
+    	    BEGIN
+    	    	IF NOT LIB$SUB_TIMES (NOWTIME, CTR [CTR_Q_LASTCHG], DELTA) THEN
+    	    	    CH$FILL (%CHAR (0), %ALLOCATION (DELTA), DELTA);
+    	    	IF .CTR [CTR_V_FORCE] OR .CTR [CTR_V_DISCON] 
+    	    	    	OR .CTR [CTR_V_EXIT] THEN
+    	    	BEGIN
+    	    	    TRACE (DBG_M_MAIN, '  -- Force check: Is !%T GTR !%T?',
+    	    	    	DELTA, CTR [CTR_Q_FORCETIME]);
+    	    	    IF LIB$SUB_TIMES (DELTA, CTR [CTR_Q_FORCETIME], DIFF)
+    	    	    	    EQL LIB$_NORMAL THEN
+    	    	    BEGIN
+    	    	    	LOCAL C : REF CTRDEF, D : BLOCK [8,BYTE];
+    	    	    	IF .CTR [CTR_W_GRPLEN] GTR 0 THEN
+    	    	    	BEGIN
+    	    	    	    TRACE (DBG_M_MAIN, 
+    	    	    	    	'       -- also check count group members...');
+    	    	    	    C = .COUNTQ [QUE_L_HEAD];
+    	    	    	    WHILE .C NEQA COUNTQ DO
+    	    	    	    BEGIN
+    	    	    	    	IF CH$EQL (.C [CTR_W_GRPLEN], C [CTR_T_GRPNAM],
+    	    	    	    	    .CTR [CTR_W_GRPLEN], CTR [CTR_T_GRPNAM], %C' ') 
+    	    	    	    	AND (.C [CTR_V_FORCE] OR .C [CTR_V_DISCON] OR .C [CTR_V_EXIT])
+    	    	    	    	AND NOT .C [CTR_V_FAKE]
+    	    	    	    	THEN
+    	    	    	    	BEGIN
+    	    	    	    	    IF LIB$SUB_TIMES (NOWTIME, C [CTR_Q_LASTCHG], D) THEN
+    	    	    	    	    	IF LIB$SUB_TIMES (D, C [CTR_Q_FORCETIME],
+    	    	    	    	    	     DIFF) NEQ LIB$_NORMAL THEN EXITLOOP;
+    	    	    	    	END;
+    	    	    	    	C = .C [CTR_L_FLINK];
+    	    	    	    END;
+    	    	    	    IF .C EQLA COUNTQ THEN
+    	    	    	    BEGIN
+    	    	    	    	FORCE (CTR, CHKQUE, COUNTQ);
+    	    	    	    	TRACE (DBG_M_MAIN, '     -- Terminal forced.');
+    	    	    	    END
+    	    	    	    ELSE TRACE (DBG_M_MAIN,
+    	    	    	    	'    -- Don''t force: pid !XL changed at !%D',
+    	    	    	    	.C [CTR_L_PID], C [CTR_Q_LASTCHG]);
+    	    	    	END
+    	    	    	ELSE
+    	    	    	BEGIN
+    	    	    	    FORCE (CTR, CHKQUE, COUNTQ);
+    	    	    	    TRACE (DBG_M_MAIN, '    -- Terminal forced.');
+    	    	    	END;
+    	    	    END;
+    	    	END;
+    	    	IF NOT .CTR [CTR_V_WARNED] AND .CTR [CTR_V_WARN] THEN
+    	    	BEGIN
+    	    	    TRACE (DBG_M_MAIN, '  -- Warn check: Is !%T GTR !%T?',
+    	    	    	DELTA, CTR [CTR_Q_WARNTIME]);
+    	    	    IF LIB$SUB_TIMES (DELTA, CTR [CTR_Q_WARNTIME], DIFF)
+    	    	    	    EQL LIB$_NORMAL THEN
+    	    	    BEGIN
+    	    	    	LOCAL C : REF CTRDEF, D : BLOCK [8,BYTE];
+    	    	    	IF .CTR [CTR_W_GRPLEN] GTR 0 THEN
+    	    	    	BEGIN
+    	    	    	    TRACE (DBG_M_MAIN, 
+    	    	    	    	'       -- also check count group members...');
+    	    	    	    C = .COUNTQ [QUE_L_HEAD];
+    	    	    	    WHILE .C NEQA COUNTQ DO
+    	    	    	    BEGIN
+    	    	    	    	IF CH$EQL (.C [CTR_W_GRPLEN], C [CTR_T_GRPNAM],
+    	    	    	    	    .CTR [CTR_W_GRPLEN], CTR [CTR_T_GRPNAM], %C' ') 
+    	    	    	    	AND .C [CTR_V_WARN]
+    	    	    	    	THEN
+    	    	    	    	BEGIN
+    	    	    	    	    IF LIB$SUB_TIMES (NOWTIME, C [CTR_Q_LASTCHG], D) THEN
+    	    	    	    	    	IF LIB$SUB_TIMES (D, C [CTR_Q_WARNTIME],
+    	    	    	    	    	     DIFF) NEQ LIB$_NORMAL THEN EXITLOOP;
+    	    	    	    	END;
+    	    	    	    	C = .C [CTR_L_FLINK];
+    	    	    	    END;
+    	    	    	    IF .C EQLA COUNTQ THEN
+    	    	    	    BEGIN
+    	    	    	    	WARN (CTR);
+    	    	    	    	TRACE (DBG_M_MAIN, '     -- Terminal warned.');
+    	    	    	    END
+    	    	    	    ELSE TRACE (DBG_M_MAIN,
+    	    	    	    	'    -- Don''t warn: pid !XL changed at !%D',
+    	    	    	    	.C [CTR_L_PID], C [CTR_Q_LASTCHG]);
+    	    	    	END
+    	    	    	ELSE
+    	    	    	BEGIN
+    	    	    	    WARN (CTR);
+    	    	    	    TRACE (DBG_M_MAIN, '    -- Terminal warned.');
+    	    	    	END;
+    	    	    END;
+    	    	END;
+    	    END;
+
+    	    MEM_FREECHK (CHK);
+
+    	END;
+
+    	TRACE (DBG_M_MAIN, '*** End of warn/force checks ***');
+
+    	C = .COUNTQ [QUE_L_HEAD];
+    	WHILE .C NEQA COUNTQ [QUE_L_HEAD] DO
+    	BEGIN
+    	    LOCAL TMP;
+    	    TMP = .C [CTR_L_FLINK];
+    	    IF NOT .C [CTR_V_VALID] THEN
+    	    BEGIN
+    	    	REMQUE (.C, C);
+    	    	MEM_FREECTR (C);
+    	    END;
+    	    C = .TMP;
+    	END;
+
+    	TRACE (DBG_M_MAIN, '*** About to sleep, interval=!%T ***',
+    	    GLOBALS [GBL_Q_INTERVAL]);
+
+    	FLUSH_LOG ();
+
+    	$SCHDWK (DAYTIM=GLOBALS [GBL_Q_INTERVAL]);
+    	$HIBER;
+    	$CANWAK ();
+
+    	TRACE (DBG_M_MAIN, '*** Wake up!! ***');
+
+    END;
+
+    SS$_NORMAL
+
+END; ! WATCHER
+
+%SBTTL 'INIT'
+ROUTINE INIT : NOVALUE = 
+BEGIN
+!++
+! FUNCTIONAL DESCRIPTION:
+!
+!   Initializes everything.
+!
+! RETURNS:  	no value
+!
+! PROTOTYPE:
+!
+!   INIT
+!
+! IMPLICIT INPUTS:  None.
+!
+! IMPLICIT OUTPUTS: None.
+!
+! COMPLETION CODES:
+!
+!   None.
+!
+! SIDE EFFECTS:
+!
+!   None.
+!--
+    EXTERNAL ROUTINE
+    	INIT_LOG;
+    LOCAL
+    	IOSB	: MIOSBDEF,
+    	SYILST	: $ITMLST_DECL (ITEMS=2),
+    	VMSVER	: ALIAS VECTOR [8,BYTE],
+    	VVLEN	: ALIAS WORD,
+    	TEMP	: ALIAS WORD,
+    	STATUS;
+
+    CH$FILL (%CHAR (0), GBL_S_GBLDEF, GLOBALS);
+    INIT_QUEUE (TRMQUE, OVRQUE, EXCQUE, COUNTQ);
+
+    STATUS = LOAD_CONFIG ();
+    IF NOT .STATUS THEN SIGNAL_STOP (WATCHER__NOCFG, 0, .STATUS);
+
+    $ITMLST_INIT (ITMLST=SYILST,
+    	(ITMCOD=SYI$_VERSION, BUFSIZ=%ALLOCATION (VMSVER),
+    	    BUFADR=VMSVER, RETLEN=VVLEN),
+    	(ITMCOD=SYI$_SCSNODE, BUFSIZ=PGBL_S_SCSNAM,
+    	    BUFADR=PGLOBALS [PGBL_T_SCSNAM],
+    	    RETLEN=TEMP));
+    $GETSYIW (ITMLST=SYILST);
+
+    IF .TEMP GTR 0 THEN
+    BEGIN
+    	LOCAL CP;
+    	CP = CH$FIND_CH (.TEMP, PGLOBALS [PGBL_T_SCSNAM], %C' ');
+    	IF NOT CH$FAIL (.CP) THEN
+    	    TEMP = CH$DIFF (.CP, PGLOBALS [PGBL_T_SCSNAM]);
+    END;
+    PGLOBALS [PGBL_W_SCSLEN] = .TEMP;
+
+%IF %BLISS(BLISS32V) %THEN
+    IF .VVLEN GTR 0 THEN
+    	IF .VMSVER [1] LSS %C'5' OR (.VMSVER [1] EQL %C'5' AND .VMSVER [3] LSS %C'4') THEN
+    	    $EXIT (CODE=SS$_SHRIDMISMAT);
+%FI
+
+    INIT_LOG ();
+    LOG ('WATCHER starting');
+
+    STATUS = $CREMBX (PRMFLG=1, CHAN=MBXCHN, PROMSK=%X'FF00',
+    	    	LOGNAM=%ASCID'WATCHER_MBOX');
+    IF NOT .STATUS THEN SIGNAL_STOP (.STATUS);
+
+    LIB$GET_EF (MBXEFN);
+
+    STATUS = $QIOW (EFN=.MBXEFN, CHAN=.MBXCHN, IOSB=IOSB,
+    	FUNC=IO$_SETMODE OR IO$M_WRTATTN, P1=MBX_AST);
+
+    $DCLEXH (DESBLK=EXHBLK);
+
+END; ! INIT
+
+%SBTTL 'EXCLOVER'
+ROUTINE EXCLOVER (PRC_A, QUE_A, REC_A_A) = 
+BEGIN
+!++
+! FUNCTIONAL DESCRIPTION:
+!
+!   Searches either the exclusion queue or the override queue for a match.
+!
+! RETURNS:  	cond_value, longword (unsigned), write only, by value
+!
+! PROTOTYPE:
+!
+!   EXCLOVER
+!
+! IMPLICIT INPUTS:  None.
+!
+! IMPLICIT OUTPUTS: None.
+!
+! COMPLETION CODES:
+!
+!   SS$_NORMAL:	    	normal successful completion.
+!
+! SIDE EFFECTS:
+!
+!   None.
+!--
+    BUILTIN
+    	ACTUALCOUNT;
+
+    BIND
+    	P   = .PRC_A	: PRCDEF,
+    	QUE = .QUE_A	: QUEDEF;
+
+    LOCAL
+    	E   	: REF EXCDEF,
+    	S1  	: BLOCK [DSC$K_S_BLN,BYTE],
+    	S2  	: BLOCK [DSC$K_S_BLN,BYTE],
+    	NTIME	: VECTOR [7,WORD],
+    	MATCH,
+    	TRCMSK,
+    	DOW;
+
+    TRCMSK = (IF QUE EQLA OVRQUE THEN DBG_M_OVERRIDE ELSE DBG_M_EXCLUDE);
+    TRACE (.TRCMSK, '  -- Searching !AS list...',
+    	(IF QUE EQLA OVRQUE THEN %ASCID'override' ELSE %ASCID'exclude'));
+
+    $NUMTIM (TIMBUF=NTIME, TIMADR=NOWTIME);
+    LIB$DAY_OF_WEEK (NOWTIME, DOW);
+
+    S1 [DSC$B_DTYPE] = S2 [DSC$B_DTYPE] = DSC$K_DTYPE_T;
+    S1 [DSC$B_CLASS] = S2 [DSC$B_CLASS] = DSC$K_CLASS_S;
+
+    E = .QUE [QUE_L_HEAD];
+    WHILE .E NEQA QUE [QUE_L_HEAD] DO
+    BEGIN
+    	S2 [DSC$A_POINTER] = E [EXC_T_UNAME];
+    	S2 [DSC$W_LENGTH] = .E [EXC_W_UNAMELEN];
+    	S1 [DSC$A_POINTER] = P [PRC_T_USRNAM];
+    	S1 [DSC$W_LENGTH] = .P [PRC_W_USRLEN];
+
+    	TRACE (.TRCMSK, '    -- Username: exclude=!AS, process=!AS', S2, S1);
+    	MATCH = STR$MATCH_WILD (S1, S2) EQL STR$_MATCH;
+    	IF .MATCH THEN
+    	BEGIN
+    	    BIND U2 = E [EXC_L_UIC] : BLOCK [,BYTE],
+    	    	 U1 = P [PRC_L_UIC] : BLOCK [,BYTE];
+    	    OWN  WILDUIC : BLOCK [4,BYTE] PRESET ([0,0,32,0]=-1) PSECT ($PLIT$);
+
+    	    TRACE (.TRCMSK, '    -- UIC: exclude=!%U, process=!%U',
+    	    	.E [EXC_L_UIC], .P [PRC_L_UIC]);
+
+    	    MATCH = (.U2 [UIC$V_GROUP] EQL .WILDUIC [UIC$V_GROUP] OR
+    	    	    .U2 [UIC$V_GROUP] EQL .U1 [UIC$V_GROUP]) AND
+    	    	    (.U2 [UIC$V_MEMBER] EQL .WILDUIC [UIC$V_MEMBER] OR
+    	    	    .U2 [UIC$V_MEMBER] EQL .U1 [UIC$V_MEMBER]);
+    	END;
+
+    	IF .MATCH THEN
+    	BEGIN
+    	    BIND P1 = P [PRC_Q_PRIVS] : VECTOR [2,LONG],
+    	    	 P2 = E [EXC_Q_PRIVMASK] : VECTOR [2,LONG];
+
+    	    TRACE (.TRCMSK, '    -- Privs: exclude=!XL !XL, process=!XL !XL',
+    	    	.P2 [1], .P2 [0], .P1 [1], .P1 [0]);
+
+    	    MATCH = ((.P1 [0] AND .P2 [0]) EQLU .P2 [0]) AND
+    	    	    ((.P1 [1] AND .P2 [1]) EQLU .P2 [1]);
+    	END;
+
+    	IF .MATCH THEN
+    	BEGIN
+    	    S2 [DSC$A_POINTER] = E [EXC_T_TRMNAM];
+    	    S2 [DSC$W_LENGTH] = .E [EXC_W_TRMNAMLEN];
+    	    S1 [DSC$A_POINTER] = P [PRC_T_DEVNAM];
+    	    S1 [DSC$W_LENGTH] = .P [PRC_W_DEVLEN];
+
+    	    TRACE (.TRCMSK,
+    	    	'    -- Terminal: exclude=!AS, process=!AS', S2, S1);
+
+    	    MATCH = STR$MATCH_WILD (S1, S2) EQL STR$_MATCH;
+    	END;
+
+    	IF .MATCH THEN
+    	BEGIN
+    	    S2 [DSC$A_POINTER] = E [EXC_T_ACCNAM];
+    	    S2 [DSC$W_LENGTH] = .E [EXC_W_ACCNAMLEN];
+    	    S1 [DSC$A_POINTER] = P [PRC_T_ACCNAM];
+    	    S1 [DSC$W_LENGTH] = .P [PRC_W_ACCLEN];
+
+    	    TRACE (.TRCMSK, '    -- AccPor: exclude=!AS, process=!AS', S2, S1);
+
+    	    MATCH = STR$MATCH_WILD (S1, S2) EQL STR$_MATCH;
+    	END;
+
+    	IF .MATCH THEN
+    	BEGIN
+    	    BIND DC = P [PRC_L_TTDEVCHR] : BLOCK [,BYTE];
+    	    IF .E [EXC_V_OPERATOR] THEN
+    	    BEGIN
+    	    	TRACE (.TRCMSK, '    -- exclude operator, terminal is!AS enabled',
+    	    	    	(IF .DC [DEV$V_OPR] THEN %ASCID'' ELSE %ASCID' NOT'));
+    	    	MATCH = .DC [DEV$V_OPR];
+    	    END;
+    	END;
+
+    	IF .MATCH THEN
+    	BEGIN
+    	    S2 [DSC$A_POINTER] = E [EXC_T_IMGNAM];
+    	    S2 [DSC$W_LENGTH] = .E [EXC_W_IMGNAMLEN];
+    	    S1 [DSC$A_POINTER] = P [PRC_T_IMGNAM];
+    	    S1 [DSC$W_LENGTH] = .P [PRC_W_IMGLEN];
+
+    	    TRACE (.TRCMSK, '    -- Image: exclude=!AS, process=!AS', S2, S1);
+
+    	    MATCH = STR$MATCH_WILD (S1, S2) EQL STR$_MATCH;
+    	END;
+
+    	IF .MATCH AND .GLOBALS [GBL_V_IDENTS] AND .E [EXC_L_IDENT] NEQA 0 THEN
+    	BEGIN
+    	    LOCAL ID : REF IDDEF, M;
+
+    	    TRACE (.TRCMSK, '    -- Comparing identifier lists...');
+    	    M = 0;
+    	    ID = .P [PRC_A_IDLIST];
+    	    WHILE .ID NEQA 0 DO
+    	    BEGIN
+    	    	BIND V = ID [ID_X_IDLIST] : VECTOR [,LONG];
+    	    	INCR I FROM 0 TO .ID [ID_L_COUNT]-1 DO
+    	    	BEGIN
+    	    	    IF .V [.I] EQL .E [EXC_L_IDENT] THEN
+    	    	    BEGIN
+    	    	    	M = 1;
+    	    	    	TRACE (.TRCMSK, '      -- Found a match: !%I', .V [.I]);
+    	    	    	EXITLOOP;
+    	    	    END;
+    	    	END;
+    	    	IF .M THEN EXITLOOP;
+    	    	ID = .ID [ID_L_FLINK];
+    	    END;
+    	    MATCH = .M;
+    	    IF NOT .M THEN
+    	    	TRACE (.TRCMSK, '      -- Did not find a match.');
+    	END;
+
+    	IF .MATCH THEN
+    	BEGIN
+    	    BIND EXCTIME = E [EXC_AL_TIMES] : BLOCK [7,LONG];
+
+    	    TRACE (.TRCMSK, 
+    	    	'    -- Day/time matrix: DOW=!UL, Hour=!UL, match=!UL',
+    	    	.DOW, .NTIME[3], .EXCTIME [.DOW-1,.NTIME[3],1,0]);
+
+    	    IF .EXCTIME [.DOW-1,.NTIME[3],1,0] THEN
+    	    BEGIN
+    	    	IF ACTUALCOUNT () GTR 2 THEN
+    	    	    .REC_A_A = .E;
+    	    	RETURN 1;
+    	    END;
+    	END;
+
+    	E = .E [EXC_L_FLINK];
+
+    END; ! WHILE E
+
+    TRACE (.TRCMSK, '    -- Exhausted list: no match.');
+
+    0
+
+END; ! EXCLOVER
+
+%SBTTL 'ON_COUNT_LIST'
+ROUTINE ON_COUNT_LIST (PRC_A, CTR_A_A) = 
+BEGIN
+!++
+! FUNCTIONAL DESCRIPTION:
+!
+!   Locates a terminal on the count list.
+!
+! RETURNS:  	cond_value, longword (unsigned), write only, by value
+!
+! PROTOTYPE:
+!
+!   ON_COUNT_LIST  prc, ctr
+!
+! IMPLICIT INPUTS:  None.
+!
+! IMPLICIT OUTPUTS: None.
+!
+! COMPLETION CODES:
+!
+!   SS$_NORMAL:	    	normal successful completion.
+!
+! SIDE EFFECTS:
+!
+!   None.
+!--
+    BIND
+    	PRC = .PRC_A	    : PRCDEF,
+    	CTR = .CTR_A_A	    : REF CTRDEF;
+
+    LOCAL
+    	C   : REF CTRDEF;
+
+    C = .COUNTQ [QUE_L_HEAD];
+    WHILE .C NEQA COUNTQ [QUE_L_HEAD] DO
+    BEGIN
+    	IF .PRC [PRC_L_PID] EQLU .C [CTR_L_PID] THEN
+    	    IF CH$EQL (.PRC [PRC_W_DEVLEN], PRC [PRC_T_DEVNAM],
+    	    	    .C [CTR_W_DEVLEN], C [CTR_T_DEVNAM], %C' ') AND
+    	    	    CH$EQL (.PRC [PRC_W_ACCLEN], PRC [PRC_T_ACCNAM],
+    	    	    .C [CTR_W_ACCLEN], C [CTR_T_ACCNAM], %C' ') AND
+    	    	    CH$EQL (.PRC [PRC_W_USRLEN], PRC [PRC_T_USRNAM],
+    	    	    .C [CTR_W_USRLEN], C [CTR_T_USRNAM]) THEN
+    	    BEGIN
+    	    	CTR = .C;
+    	    	RETURN SS$_NORMAL;
+    	    END;
+    	C = .C [CTR_L_FLINK];
+    END;
+
+    0
+
+END; ! ON_COUNT_LIST
+
+%SBTTL 'WATCHING'
+ROUTINE WATCHING (PRC_A, CTR_A_A) =
+BEGIN
+!++
+! FUNCTIONAL DESCRIPTION:
+!
+!   Checks to see if the terminal being used by a process is supposed
+!   to be watched.  If so, a new CTR record is created and placed on
+!   the count list.
+!
+! RETURNS:  	cond_value, longword (unsigned), write only, by value
+!
+! PROTOTYPE:
+!
+!   WATCHING  prc, ctr
+!
+! IMPLICIT INPUTS:  None.
+!
+! IMPLICIT OUTPUTS: None.
+!
+! COMPLETION CODES:
+!
+!   SS$_NORMAL:	    	normal successful completion.
+!
+! SIDE EFFECTS:
+!
+!   None.
+!--
+    BIND
+    	PRC = .PRC_A	    : PRCDEF,
+    	CTR = .CTR_A_A	    : REF CTRDEF;
+
+    LOCAL
+    	TRM 	: REF TRMDEF,
+    	OVR 	: REF EXCDEF,
+    	S1  	: BLOCK [DSC$K_S_BLN,BYTE],
+    	S2  	: BLOCK [DSC$K_S_BLN,BYTE];
+
+    S1 [DSC$B_DTYPE] = S2 [DSC$B_DTYPE] = DSC$K_DTYPE_T;
+    S1 [DSC$B_CLASS] = S2 [DSC$B_CLASS] = DSC$K_CLASS_S;
+
+    TRM = .TRMQUE [QUE_L_HEAD];
+    WHILE .TRM NEQA TRMQUE [QUE_L_HEAD] DO
+    BEGIN
+    	S2 [DSC$A_POINTER] = TRM [TRM_T_DEVNAM];
+    	S2 [DSC$W_LENGTH] = .TRM [TRM_W_DEVLEN];
+    	S1 [DSC$A_POINTER] = PRC [PRC_T_DEVNAM];
+    	S1 [DSC$W_LENGTH] = .PRC [PRC_W_DEVLEN];
+    	IF STR$MATCH_WILD (S1, S2) EQL STR$_MATCH THEN
+    	BEGIN
+    	    S2 [DSC$A_POINTER] = TRM [TRM_T_ACCNAM];
+    	    S2 [DSC$W_LENGTH] = .TRM [TRM_W_ACCLEN];
+    	    S1 [DSC$A_POINTER] = PRC [PRC_T_ACCNAM];
+    	    S1 [DSC$W_LENGTH] = .PRC [PRC_W_ACCLEN];
+    	    IF STR$MATCH_WILD (S1, S2) EQL STR$_MATCH THEN
+    	    BEGIN
+    	    	MEM_GETCTR (CTR);
+    	    	$GETTIM (TIMADR=CTR [CTR_Q_LASTCHG]);   ! Preset the last-changed time to now
+    	    	CTR [CTR_L_PID] = .PRC [PRC_L_PID]; 
+    	    	CTR [CTR_V_FAKE] = .PRC [PRC_V_FAKE];
+    	    	CTR [CTR_V_DECW] = .PRC [PRC_V_DECW];
+    	    	CTR [CTR_W_USRLEN] = .PRC [PRC_W_USRLEN];
+    	    	CH$MOVE (.CTR [CTR_W_USRLEN], PRC [PRC_T_USRNAM],
+    	    	    CTR [CTR_T_USRNAM]);
+    	    	CTR [CTR_W_DEVLEN] = .PRC [PRC_W_DEVLEN];
+    	    	CH$MOVE (.CTR [CTR_W_DEVLEN], PRC [PRC_T_DEVNAM],
+    	    	    CTR [CTR_T_DEVNAM]);
+    	    	CTR [CTR_W_ACCLEN] = .PRC [PRC_W_ACCLEN];
+    	    	CH$MOVE (.CTR [CTR_W_ACCLEN], PRC [PRC_T_ACCNAM],
+    	    	    CTR [CTR_T_ACCNAM]);
+    	    	CTR [CTR_W_IMGLEN] = .PRC [PRC_W_IMGLEN];
+    	    	CH$MOVE (.CTR [CTR_W_IMGLEN], PRC [PRC_T_IMGNAM],
+    	    	    CTR [CTR_T_IMGNAM]);
+    	    	IF .CTR [CTR_V_DECW] THEN
+    	    	BEGIN
+    	    	    CTR [CTR_W_GRPLEN] = MIN (CTR_S_GRPNAM, .PRC [PRC_W_DEVLEN]);
+    	    	    CH$MOVE (.CTR [CTR_W_GRPLEN], PRC [PRC_T_DEVNAM],
+    	    	    	CTR [CTR_T_GRPNAM]);
+    	    	END
+    	    	ELSE
+    	    	BEGIN
+    	    	    CTR [CTR_W_GRPLEN] = .TRM [TRM_W_GRPLEN];
+    	    	    CH$MOVE (.CTR [CTR_W_GRPLEN], TRM [TRM_T_GRPNAM],
+    	    	    	CTR [CTR_T_GRPNAM]);
+    	    	END;
+    	    	CTR [CTR_A_TRMREC] = .TRM;
+    	    	CTR [CTR_V_CPU] = .TRM [TRM_V_CPU];
+    	    	CTR [CTR_V_PIO] = .TRM [TRM_V_PIO];
+    	    	CTR [CTR_V_TIO] = .TRM [TRM_V_TIO];
+    	    	CTR [CTR_V_DISCON] = .TRM [TRM_V_DISCON];
+    	    	CTR [CTR_V_WARN] = .TRM [TRM_V_WARN];
+    	    	CTR [CTR_V_FORCE] = .TRM [TRM_V_FORCE];
+    	    	CTR [CTR_V_EXIT] = .TRM [TRM_V_EXIT];
+    	    	CTR [CTR_L_DCPU] = .TRM [TRM_L_DCPU];
+    	    	CTR [CTR_L_DPIOCT] = .TRM [TRM_L_DPIO];
+    	    	CTR [CTR_L_DTIOCT] = .TRM [TRM_L_DTIO];
+    	    	CH$MOVE (8, TRM [TRM_Q_WARNTIME], CTR [CTR_Q_WARNTIME]);
+    	    	CH$MOVE (8, TRM [TRM_Q_FORCETIME], CTR [CTR_Q_FORCETIME]);
+    	    	IF EXCLOVER (PRC, OVRQUE, OVR) THEN
+    	    	BEGIN
+    	    	    CTR [CTR_A_OVERRIDE] = .OVR;
+    	    	    IF .OVR [EXC_V_METRICS] THEN
+    	    	    BEGIN
+    	    	    	CTR [CTR_V_CPU] = .OVR [EXC_V_CPU];
+    	    	    	CTR [CTR_V_PIO] = .OVR [EXC_V_PIO];
+    	    	    	CTR [CTR_V_TIO] = .OVR [EXC_V_TIO];
+    	    	    	CTR [CTR_L_DCPU] = .OVR [EXC_L_DCPU];
+    	    	    	CTR [CTR_L_DPIOCT] = .OVR [EXC_L_DPIO];
+    	    	    	CTR [CTR_L_DTIOCT] = .OVR [EXC_L_DTIO];
+    	    	    END;
+    	    	    IF .OVR [EXC_V_OVRWARN] THEN
+    	    	    BEGIN
+    	    	    	CTR [CTR_V_WARN] = .OVR [EXC_V_WARN];
+    	    	    	CH$MOVE (8, OVR [EXC_Q_WARNTIME], CTR [CTR_Q_WARNTIME]);
+    	    	    END;
+    	    	    IF .OVR [EXC_V_OVRFORCE] THEN
+    	    	    BEGIN
+    	    	    	CTR [CTR_V_FORCE] = .OVR [EXC_V_FORCE];
+    	    	    	CTR [CTR_V_DISCON] = .OVR [EXC_V_DISCON];
+    	    	    	CTR [CTR_V_EXIT] = .OVR [EXC_V_EXIT];
+    	    	    	CH$MOVE (8, OVR [EXC_Q_FORCETIME], CTR [CTR_Q_FORCETIME]);
+    	    	    END;
+    	    	END;
+
+    	    	IF .CTR [CTR_V_EXIT] AND .CTR [CTR_W_IMGLEN] EQL 0
+    	    	THEN RETURN 0;
+
+    	    	INSQUE (.CTR, .COUNTQ [QUE_L_TAIL]);
+
+    	    	RETURN SS$_NORMAL;
+
+    	    END;
+    	END;
+    	TRM = .TRM [TRM_L_FLINK];
+    END;
+
+    0
+
+END; ! WATCHING
+
+%SBTTL 'CHANGED'
+ROUTINE CHANGED (PRC_A, CTR_A) = 
+BEGIN
+!++
+! FUNCTIONAL DESCRIPTION:
+!
+!   Updates a counter record and determines whether there have
+!   been any changes since the last update.
+!
+! RETURNS:  	cond_value, longword (unsigned), write only, by value
+!
+! PROTOTYPE:
+!
+!   CHANGED
+!
+! IMPLICIT INPUTS:  None.
+!
+! IMPLICIT OUTPUTS: None.
+!
+! COMPLETION CODES:
+!
+!   SS$_NORMAL:	    	normal successful completion.
+!
+! SIDE EFFECTS:
+!
+!   None.
+!--
+    BIND
+    	PRC 	= .PRC_A    	    	: PRCDEF,
+    	CTR 	= .CTR_A    	    	: CTRDEF;
+
+    CTR [CTR_V_VALID] = 1;
+    IF .CTR [CTR_V_FAKE] THEN
+    BEGIN
+    	TRACE (DBG_M_CHANGE, '  -- "Fake" process: skip warn/logout check.');
+    	RETURN CTR [CTR_V_CHANGED] = 1;
+    END;
+
+    CTR [CTR_V_CHANGED] = .CTR [CTR_V_CPU] AND
+    	    ABS (.PRC [PRC_L_CPU]-.CTR [CTR_L_CPU]) GTR .CTR [CTR_L_DCPU];
+    IF .CTR [CTR_V_CHANGED] THEN
+    	TRACE (DBG_M_CHANGE, '  -- CPU time changed: was !UL, now !UL',
+    	    .CTR [CTR_L_CPU], .PRC [PRC_L_CPU])
+    ELSE
+    BEGIN
+    	CTR [CTR_V_CHANGED] = .CTR [CTR_V_TIO] AND
+    	    ABS (.PRC [PRC_L_TIOCT]-.CTR [CTR_L_TIOCT]) GTR .CTR [CTR_L_DTIOCT];
+    	IF .CTR [CTR_V_CHANGED] THEN
+    	    TRACE (DBG_M_CHANGE, '  -- TIO count changed: was !UL, now !UL',
+    	    	.CTR [CTR_L_TIOCT], .PRC [PRC_L_TIOCT])
+    	ELSE
+    	BEGIN
+    	    CTR [CTR_V_CHANGED] = .CTR [CTR_V_PIO] AND
+    	    	ABS (.PRC [PRC_L_PIOCT]-.CTR [CTR_L_PIOCT]) GTR
+    	    	    .CTR [CTR_L_DPIOCT];
+    	    IF .CTR [CTR_V_CHANGED] THEN
+    	    	TRACE (DBG_M_CHANGE, '  -- PIO count changed: was !UL, now !UL',
+    	    	    .CTR [CTR_L_PIOCT], .PRC [PRC_L_PIOCT])
+    	    ELSE
+    	    BEGIN
+    	    	CTR [CTR_V_CHANGED] = NOT (.CTR [CTR_V_CPU] OR
+    	    	    .CTR [CTR_V_PIO] OR .CTR [CTR_V_TIO]);
+    	    	IF .CTR [CTR_V_CHANGED] THEN
+    	    	    TRACE (DBG_M_CHANGE, 
+    	    	    	'  -- No change measurements; treat as changed.');
+    	    END;
+    	END;
+    END;
+    IF .CTR [CTR_V_CHANGED] THEN $GETTIM (TIMADR=CTR [CTR_Q_LASTCHG]);
+    CTR [CTR_V_WARNED] = .CTR [CTR_V_WARNED] AND NOT .CTR [CTR_V_CHANGED];
+    CTR [CTR_L_CPU] = .PRC [PRC_L_CPU];
+    CTR [CTR_L_PIOCT] = .PRC [PRC_L_PIOCT];
+    CTR [CTR_L_TIOCT] = .PRC [PRC_L_TIOCT];
+    CTR [CTR_W_IMGLEN] = .PRC [PRC_W_IMGLEN];
+    CH$MOVE (.CTR [CTR_W_IMGLEN], PRC [PRC_T_IMGNAM], CTR [CTR_T_IMGNAM]);
+
+    .CTR [CTR_V_CHANGED]
+
+END; ! CHANGED
+
+%SBTTL 'UPDATE_COUNTER_FOR_OVERRIDE'
+ROUTINE UPDATE_COUNTER_FOR_OVERRIDE (CTR_A, OVR_A) : NOVALUE = 
+BEGIN
+!++
+! FUNCTIONAL DESCRIPTION:
+!
+!   Updates a counter record with override information, due to
+!   an transition either to or from an override qualification.
+!
+! RETURNS:  	cond_value, longword (unsigned), write only, by value
+!
+! PROTOTYPE:
+!
+!   	UPDATE_COUNTER_FOR_OVERRIDE ctr, ovr
+!
+! IMPLICIT INPUTS:  None.
+!
+! IMPLICIT OUTPUTS: None.
+!
+! COMPLETION CODES:
+!
+!   SS$_NORMAL:	    	normal successful completion.
+!
+! SIDE EFFECTS:
+!
+!   None.
+!--
+    BIND
+    	CTR 	= .CTR_A    	    	: CTRDEF,
+    	OVR 	= .OVR_A    	    	: EXCDEF,
+    	TRM 	= .CTR [CTR_A_TRMREC]	: TRMDEF;
+
+!+
+!   Begin by resetting the counter back to the WATCH record settings.
+!-
+    CTR [CTR_V_CPU] = .TRM [TRM_V_CPU];
+    CTR [CTR_V_PIO] = .TRM [TRM_V_PIO];
+    CTR [CTR_V_TIO] = .TRM [TRM_V_TIO];
+    CTR [CTR_V_DISCON] = .TRM [TRM_V_DISCON];
+    CTR [CTR_V_WARN] = .TRM [TRM_V_WARN];
+    CTR [CTR_V_FORCE] = .TRM [TRM_V_FORCE];
+    CTR [CTR_V_EXIT] = .TRM [TRM_V_EXIT];
+    CTR [CTR_L_DCPU] = .TRM [TRM_L_DCPU];
+    CTR [CTR_L_DPIOCT] = .TRM [TRM_L_DPIO];
+    CTR [CTR_L_DTIOCT] = .TRM [TRM_L_DTIO];
+    CH$MOVE (8, TRM [TRM_Q_WARNTIME], CTR [CTR_Q_WARNTIME]);
+    CH$MOVE (8, TRM [TRM_Q_FORCETIME], CTR [CTR_Q_FORCETIME]);
+    CTR [CTR_A_OVERRIDE] = 0;
+!+
+!   And now fill in the override information, if there is any
+!-
+    IF .OVR_A NEQA 0 THEN
+    BEGIN
+    	CTR [CTR_A_OVERRIDE] = .OVR_A;
+    	IF .OVR [EXC_V_METRICS] THEN
+    	BEGIN
+    	    CTR [CTR_V_CPU] = .OVR [EXC_V_CPU];
+    	    CTR [CTR_V_PIO] = .OVR [EXC_V_PIO];
+    	    CTR [CTR_V_TIO] = .OVR [EXC_V_TIO];
+    	    CTR [CTR_L_DCPU] = .OVR [EXC_L_DCPU];
+    	    CTR [CTR_L_DPIOCT] = .OVR [EXC_L_DPIO];
+    	    CTR [CTR_L_DTIOCT] = .OVR [EXC_L_DTIO];
+    	END;
+    	IF .OVR [EXC_V_OVRWARN] THEN
+    	BEGIN
+    	    CTR [CTR_V_WARN] = .OVR [EXC_V_WARN];
+    	    CH$MOVE (8, OVR [EXC_Q_WARNTIME], CTR [CTR_Q_WARNTIME]);
+    	END;
+    	IF .OVR [EXC_V_OVRFORCE] THEN
+    	BEGIN
+    	    CTR [CTR_V_FORCE] = .OVR [EXC_V_FORCE];
+    	    CTR [CTR_V_DISCON] = .OVR [EXC_V_DISCON];
+    	    CTR [CTR_V_EXIT] = .OVR [EXC_V_EXIT];
+    	    CH$MOVE (8, OVR [EXC_Q_FORCETIME], CTR [CTR_Q_FORCETIME]);
+    	END;
+    END;
+!+
+!   We'll also reset the metrics back to 0 to give the user as much
+!   leniency as possible.  Wouldn't want them to get logged out for
+!   inactivity just for leaving a program or something!
+!-
+    CTR [CTR_L_CPU] = 0;
+    CTR [CTR_L_PIOCT] = 0;
+    CTR [CTR_L_TIOCT] = 0;
+    CTR [CTR_W_IMGLEN] = 0;
+    CTR [CTR_V_WARNED] = 0;
+
+END; ! UPDATE_COUNTER_FOR_OVERRIDE
+
+%SBTTL 'CHECK_MBOX'
+GLOBAL ROUTINE CHECK_MBOX : NOVALUE = 
+BEGIN
+!++
+! FUNCTIONAL DESCRIPTION:
+!
+!   Checks the command mailbox for messages and does something with
+!   the ones it can identify.
+!
+! RETURNS:  	cond_value, longword (unsigned), write only, by value
+!
+! PROTOTYPE:
+!
+!   CHECK_MBOX
+!
+! IMPLICIT INPUTS:  None.
+!
+! IMPLICIT OUTPUTS: None.
+!
+! COMPLETION CODES:
+!
+!   SS$_NORMAL:	    	normal successful completion.
+!
+! SIDE EFFECTS:
+!
+!   None.
+!--
+    EXTERNAL ROUTINE
+    	INIT_LOG,
+    	CLOSE_LOG,
+    	LOAD_CONFIG;
+
+    LOCAL
+    	IOSB	: MIOSBDEF,
+    	MBXMSG	: VECTOR [2,WORD],
+    	STATUS;
+
+    WHILE 1 DO
+    BEGIN
+    	STATUS = $QIOW (EFN=.MBXEFN, FUNC=IO$_READVBLK OR IO$M_NOW,
+    	    CHAN=.MBXCHN, IOSB=IOSB, P1=MBXMSG, P2=%ALLOCATION (MBXMSG));
+    	IF NOT .STATUS OR NOT .IOSB [MIOSB_W_STATUS] OR
+    	    .IOSB [MIOSB_W_COUNT] EQL 0 THEN EXITLOOP;
+    	SELECTONE .MBXMSG [0] OF
+    	SET
+    	    [WATCHER_K_MSGTYPE_RESET] :
+    	    	BEGIN
+    	    	    LOCAL
+    	    	    	TRM : REF TRMDEF,
+    	    	    	EXC : REF EXCDEF,
+    	    	    	CTR : REF CTRDEF;
+
+    	    	    LOG ('WATCHER resetting');
+    	    	    CLOSE_LOG ();
+    	    	    WHILE NOT REMQUE (.TRMQUE, TRM) DO
+    	    	    	LIB$FREE_VM (%REF (TRM_S_TRMDEF), TRM);
+    	    	    WHILE NOT REMQUE (.EXCQUE, EXC) DO
+    	    	    	LIB$FREE_VM (%REF (EXC_S_EXCDEF), EXC);
+    	    	    WHILE NOT REMQUE (.OVRQUE, EXC) DO
+    	    	    	LIB$FREE_VM (%REF (EXC_S_EXCDEF), EXC);
+    	    	    WHILE NOT REMQUE (.COUNTQ, CTR) DO
+    	    	    	LIB$FREE_VM (%REF (CTR_S_CTRDEF), CTR);
+    	    	    STATUS = LOAD_CONFIG ();
+    	    	    IF NOT .STATUS THEN
+    	    	    	SIGNAL_STOP (WATCHER__NOCFG, 0, .STATUS);
+    	    	    INIT_LOG ();
+    	    	END;
+
+    	    [WATCHER_K_MSGTYPE_SHUTDOWN] :
+    	    	BEGIN
+    	    	    LOG ('WATCHER shutting down');
+    	    	    CLOSE_LOG ();
+    	    	    $EXIT (CODE=SS$_NORMAL);
+    	    	END;
+
+    	    [WATCHER_K_MSGTYPE_DECW] : ;
+
+    	    [OTHERWISE] :;
+
+    	TES;
+
+    END;
+    	
+    $SETAST (ENBFLG=0);
+    IF .SETAST THEN $QIOW (EFN=.MBXEFN, CHAN=.MBXCHN, IOSB=IOSB,
+    	FUNC=IO$_SETMODE OR IO$M_WRTATTN, P1=MBX_AST);
+    SETAST = 0;
+    $SETAST (ENBFLG=1);
+
+END; ! CHECK_MBOX
+
+%SBTTL 'MBX_AST'
+ROUTINE MBX_AST = 
+BEGIN
+!++
+! FUNCTIONAL DESCRIPTION:
+!
+!   AST routine executed when someone writes something to the mailbox.
+!   Right now, this just wakes the mainline thread so that CHECK_MBOX
+!   can be executed.
+!
+! RETURNS:  	cond_value, longword (unsigned), write only, by value
+!
+! PROTOTYPE:
+!
+!   MBX_AST
+!
+! IMPLICIT INPUTS:  None.
+!
+! IMPLICIT OUTPUTS: None.
+!
+! COMPLETION CODES:
+!
+!   SS$_NORMAL:	    	normal successful completion.
+!
+! SIDE EFFECTS:
+!
+!   None.
+!--
+    SETAST = 1;
+    $WAKE ()
+
+END; ! MBX_AST
+
+%SBTTL 'EXIT_HANDLER'
+ROUTINE EXIT_HANDLER = 
+BEGIN
+!++
+! FUNCTIONAL DESCRIPTION:
+!
+!   This exit handler just does a DELMBX on the command mailbox.
+!
+! RETURNS:  	cond_value, longword (unsigned), write only, by value
+!
+! PROTOTYPE:
+!
+!   EXIT_HANDLER    (invoked at image rundown)
+!
+! IMPLICIT INPUTS:  None.
+!
+! IMPLICIT OUTPUTS: None.
+!
+! COMPLETION CODES:
+!
+!   SS$_NORMAL:	    	normal successful completion.
+!
+! SIDE EFFECTS:
+!
+!   None.
+!--
+    IF .MBXCHN NEQ 0 THEN $DELMBX (CHAN=.MBXCHN);
+
+    SS$_NORMAL
+
+END; ! EXIT_HANDLER
+
+END
+ELUDOM
