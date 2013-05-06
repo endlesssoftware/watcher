@@ -1,0 +1,140 @@
+!++
+!  SAMPLE_CONFIG.WCP  (Watcher V2.8, 03-FEB-1993)
+!
+!  A sample WCP command file for building a Watcher configuration.
+!
+!  You can use this file as a template for creating your own Watcher
+!  configuration.  Once edited, save the resulting command file as
+!  <something>.WCP.  Then run that command file through the Watcher
+!  Control Program to create your Watcher configuration database:
+!
+!  $ WCP := $WATCHER_DIR:WCP
+!  $ WCP/NOFILE
+!  WCP> @name-of-command-file
+!  WCP> SAVE WATCHER_DIR:WATCHER_CONFIG.WCFG
+!  WCP> EXIT
+!
+! .........
+!
+!  This configuration is for a VAXcluster system, so terminal device
+!  names are assumed to be of the form
+!
+!          node$device:
+!
+!  On standalone systems with no SCSNODE set, terminal device names
+!  will be of the form
+!
+!          device:
+!
+!--
+
+SET VERIFY
+
+! Set the hibernation time between processing passes
+
+SET INTERVAL=00:05:00
+
+! Set up some defaults for subsequent WATCH commands.
+! Since we run virtual terminals, we'll use disconnects
+! instead of logouts, and maybe save the user a bit of
+! grief. (Virtual terminals are described in the VMS docs,
+! Guide to Setting up a VMS System, page 6-19.)
+!
+! We can safely use /DISCONNECT even when not using virtual
+! terminals, since the disconnect code automatically does a
+! logout for terminals that cannot be disconnected.
+
+SET WATCH_DEFAULT/WARNING=00:25:00/DISCONNECT=00:30:00
+
+! Use the OPER1 operator class to log Watcher events
+
+SET EVENT/OPER=OPER1
+
+! Ring bells for warning and logout messages
+
+SET BELL
+
+! Watch DECnet remote terminals.  Use PROCESS_IO, since the terminal I/O
+! count isn't always an accurate reflection of activity.
+! Also, since RT terminals are not disconnectable, use logouts
+! instead (though the disconnect code handles this automatically).
+
+WATCH *$RT*/MEASURE=PROCESS_IO/LOGOUT
+
+! You may need the following rules if you are running TCP/IP software
+! that causes periodic activity on inbound TELNET sessions.  TWG's
+! TCP/IP implementation seems to exhibit this behaviour; others may
+! as well (NTY is used by TWG's software, others may use a different
+! device name).
+!
+!WATCH *$NTY*/MEASURE=TERMINAL_IO=5
+!
+! For the "5", substitute an appriopriate value, which should increase
+! or decrease if you raise or lower the SET INTERVAL value.  Run WATCHER
+! with DEBUG=8 (or DEBUG=15 for fuller debugging) to examine how
+! quickly the terminal I/O count increases on an idle NTY terminal.
+
+! The following should be uncommented for DECwindows workstations
+! and probably on non-workstation systems where the session manager
+! is run on remote X terminals.
+!
+! Note that you CANNOT use TERMINAL_IO for DECwindows.
+! The DECwindows code also cannot handle warnings or disconnects,
+! so you should set these up with /NOWARNING/LOGOUT.
+!
+!SET DECWINDOWS
+!WATCH *$WSA*/MEASURE=PROCESS_IO/NOWARNING/LOGOUT
+
+! The following should be uncommented for VWS workstations.
+!
+!WATCH *$WTA*/MEASURE=PROCESS_IO/GROUP=VWS  ! VT200-series terminal emulator
+!WATCH *$TKA*/MEASURE=PROCESS_IO/GROUP=VWS  ! Tek 4014 emulator
+!WATCH *$TJA*/MEASURE=PROCESS_IO/GROUP=VWS  ! Tek 4125 emulator
+
+! Apply default rules to all other terminals
+
+WATCH *
+
+! Permanently exclude those accounts that may need lengthy idle times
+
+EXCLUDE BACKUP
+EXCLUDE SYSTEM
+
+! Exclude the field service account, but only the console
+
+EXCLUDE FIELD/TERMINAL=*$OPA0 
+
+! Exclude people who have terminals in their offices, but only during
+! working hours
+
+EXCLUDE LANE/TERMINAL=*$LT*/ACCPOR="LAT01/PORT_2"/DURING=(PRIMARY:8-16)
+EXCLUDE LEW/TERMINAL=*$LT*/ACCPOR="LAT07/PORT_8"/DURING=(PRIMARY:8-16)
+EXCLUDE HINGE/TERM=*$LT*/ACCPOR="LAT01/PORT_3"/DURING=(PRIMARY:8-16)
+EXCLUDE FARMER/TERM=*$LT*/ACCPOR="LAT01/PORT_6"/DURING=(PRIMARY:8-16)
+
+! The RDRCA group consists of secretaries who could be on any terminal
+! in the 701x office complex
+
+EXCLUDE */UIC=[RDRCA,*]/TERM=*$LT*/ACCPOR="TSV%/701%*"/DURING=(PRIMARY:8-16)
+
+! Exclude the operators while they're logged in in the machine room
+
+EXCLUDE */UIC=[OP,*]/TERM=*$LT*/ACCPOR="LAT02/PORT_1"
+EXCLUDE */UIC=[OP,*]/TERM=*$LT*/ACCPOR="LAT02/PORT_2"
+EXCLUDE */UIC=[OP,*]/TERM=*$LT*/ACCPOR="LAT07/PORT_3"
+
+! Logout, don't disconnect, users running LISP, MACSYMA, or WordPerfect,
+! since those programs aren't disconnect-friendly.
+
+OVERRIDE */IMAGE=DSA60:*VAXLISP]LISP.EXE*/LOGOUT=00:30:00
+OVERRIDE */IMAGE=*:[MACSYMA.MACSYMA_412]MACSYMA-412.EXE*/LOGOUT=00:30:00
+OVERRIDE */IMAGE=*:[WPCORP.*]WPCORP_WP*.EXE*/LOGOUT=00:30:00
+
+! Just force an image exit on those users running these applications,
+! which are licensed by concurrent users, so others get a chance to use
+! them.
+
+OVERRIDE */IMAGE=DSA60:*SYSEXE]A1MAIL$DW_MAIL.EXE*/FORCE_EXIT=00:15:00
+OVERRIDE */IMAGE=DSA60:*SYSEXE]NOTES$MAIN.EXEE*/FORCE_EXIT=00:15:00
+
+! The end.
