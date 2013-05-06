@@ -1,0 +1,66 @@
+INCLUDE>(ETC_DIR:DYNAMIC_SYMBOLS.SDML)
+<FRONT_MATTER>
+
+<TITLE_PAGE>
+<TITLE>(WATCHER Release Notes)
+<ABSTRACT>(<REFERENCE>(RELMONTH))
+<P>
+This file contains the release notes for the WATCHER Utility
+<REFERENCE>(VER).  It describes any features, restrictions, changes,
+or additions made to WATCHER in this release, and includes information
+that is not provided elsewhere in the WATCHER manual.
+<ENDABSTRACT>
+<REVISION_INFO>(This is a new manual.)
+<REVISION_INFO>(Operating System and Version:\OpenVMS VAX V6.2 or later)
+<REVISION_INFO>(\OpenVMS Alpha V6.2 or later)
+<REVISION_INFO>(\OpenVMS Industry Standard 64 V8.2 or later)
+<REVISION_INFO>(Software Version:\MMK <REFERENCE>(VER))
+<ENDTITLE_PAGE>(Endless Software Solutions<LINE>Perth, Western Australia)
+<INCLUDE>(SRC_DIR:COPYRIGHT.SDML)
+
+<CONTENTS_FILE>
+<ENDFRONT_MATTER>
+
+<CHAPTER>(Installation Notes)
+<P>
+This chapter contains items of interest pertaining to the installation of
+WATCHER.
+
+<CHAPTER>(New Features and Changes in WATCHER V4.2)
+<P>
+This chapter notes the changes that were made in WATCHER V4.2.
+
+<HEAD1>(Development and Support)
+<P>The last release of WATCHER from MadGoat was released under a BSD-style
+open source license.  In support of this WATCHER has been moved to the
+github repository:
+
+<INTERACTIVE>
+http://github.com/endlesssoftware/watcher
+<ENDINTERACTIVE>
+
+<P>Now that MadGoat has ceased operation Endless Software Solutions has
+taken over stewardship of this software and continued to provide updated
+releases and maintain a user community.
+
+<P>If you are using WATCHER in a commercial environment and are interested
+in seeing more features, a higher level of support and response and the
+continued general improvement of the product, then you or your business
+might like to consider a support contract with Endless Software Solutions.
+For further information regarding support and how to obtain a quote, please
+follow your browser to:
+
+<INTERACTIVE>
+http://www.endlesssoftware.com.au
+<ENDINTERACTIVE>
+
+<P>For all other queries, please consider joining the WATCHER mailing list
+by sending a mail containing the word SUBSCRIBE to:
+
+<INTERACTIVE>
+WATCHER-List-request@endlesssoftware.com.au
+<ENDINTERACTIVE>
+
+<P>Alternatively, you can submit bug/enhancements/etc. reports to the github
+issues tracking system for this project.
+
