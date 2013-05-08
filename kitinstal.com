@@ -170,4 +170,74 @@ $   type SYS$INPUT:
 $   exit VMI$_FAILURE
 $ endif
 $
+$ if (f$search("SYS$STARTUP:WATCHER_STARTUP.COM") .nes. "") then -
+$   @SYS$STARTUP:WATCHER_STARTUP
+$ if (f$trnlnm("WATCHER_ROOT") .eqs. "")
+$ then
+$   ! if WATCHER_DIR defined
+$   ! then
+$     ! need to indicate we found older, pre-V4.2 installation?
+$     ! what do we do?
+$   ! else
+$     watcher_def_root = "SYS$COMMON:[WATCHER.]"
+$   ! endif
+$ else
+$   watcher_def_root = f$parse("WATCHER_ROOT:[000000]",,,"DEVICE","NO_CONCEAL") -
+                 + f$parse("WATCHER_ROOT:[000000]",,,"DIRECTORY","NO_CONCEAL") -
+                 - "[000000]"
+$   if (f$search("WATCHER") .nes. "")
+$   then
+$     VMI$CALLBACK MESSAGE I INSTALDET -
+        "An existing installation has been detected at ''watcher_def_root'"
+$     watcher_upgrading = 1
+$   endif
+$ endif
+$ watcher_def_root = watcher_def_root - ".]" + "]"
+$
+$ask_watcher_top:
+$ VMI$CALLBACK ASK watcher_root -
+        "Where should the watcher root directory be located" -
+        'watcher_def_root'
+$ if ((f$parse(watcher_root,"$$NOSUCHDEV$$:[$$NOSUCHDIR$$]",,"DEVICE","SYNTAX_ONLY") .eqs. "$$NOSUCHDEV$$:") .or. -
+     (f$parse(watcher_root,"$$NOSUCHDEV$$:[$$NOSUCHDIR$$]",,"DIRECTORY","SYNTAX_ONLY") .eqs. "[$$NOSUCHDIR$$]") .or. -
+     (f$parse(watcher_root,,,,"SYNTAX_ONLY") .eqs. "") .or. -
+     (f$locate(">[",watcher_root) .lt. f$length(watcher_root) .or. f$locate("]<",watcher_root) .lt. f$length(watcher_root)))
+$ then
+$   type SYS$INPUT:
+
+    Please enter a device and directory specification.
+
+$   goto ask_watcher_top
+$ endif
+$
+$ if (watcher_upgrading .and. (watcher_def_root .eqs. watcher_root))
+$ then
+$   vmi$callback ask watcher_ok -
+        "Do you want to upgrade the current installation" -
+        "YES" BH "@VMI$KWD:KITINSTAL HELP_UPGRADE"
+$   if (.not. watcher_ok) then goto ask_watcher_top
+$ endif
+$
+$ VMI$CALLBACK ASK watcher_do_command -
+        "Do you want to install the WATCHER command into DCLTABLES" -
+        'watcher_do_command' B "@VMI$KWD:KITINSTAL HELP_COMMAND"
+$
+$ VMI$CALLBACK ASK watcher_do_help -
+        "Do you want to add WATCHER to the system help library" -
+        'watcher_do_help' B "@VMI$KWD:KITINSTAL HELP_HELP"
+$
+$ VMI$CALLBACK ASK watcher_do_doc -
+        "Do you want to install the software documentation" -
+        'watcher_do_doc' B "@VMI$KWD:KITINSTAL HELP_DOC"
+$
+$ VMI$CALLBACK ASK watcher_do_source -
+        "Do you want to install the source code" -
+        'watcher_do_source' B "@VMI$KWD:KITINSTAL HELP_SOURCE"
+$
+$ VMI$CALLBACK ASK watcher_do_startup -
+        "Copy system startup procedure to SYS$STARTUP" -
+        'watcher_do_startup' B "@VMI$KWD:KITINSTAL HELP_STARTUP"
+$
+$ VMI$CALLBACK MESSAGE I INSTALL "Installing WATCHER software..."
+$
 $ exit VMI$_SUCCESS
