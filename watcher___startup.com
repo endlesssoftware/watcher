@@ -41,10 +41,24 @@ $ _axp = (_arch_type .eq. 2)
 $ _i64 = (_arch_type .eq. 3)
 $ _other = (.not. (_vax .or. _axp .or. _i64))
 $
+$check_quota: subroutine
+$ symbol = f$edit(p1,"UPCASE,COLLAPSE,TRIM,UNCOMMENT")
+$ default = f$edit(p2,"UPCASE,COLLAPSE,TRIM,UNCOMMENT")
+$ if (f$type('symbol') .eqs. "")
+$ then
+$   'symbol' == 'default'
+$ else
+$   if ('symbol' .lt. 'default') then
+$     'symbol' == 'default'
+$ endif
+$ exit 1
+$ endsubroutine
+$
 $ dns = "define/executive/nolog/system"
 $ say = "write sys$output"
 $ err = "call___ err"
 $ saysym = "write/symbol sys$output"
+$ check_quota = "call___ check_quota"
 $
 $start:
 $ dns/trans=concealed	WATCHER_ROOT	'location'.]
@@ -65,32 +79,35 @@ $   if (f$search("WATCHER_DIR:WATCHER_SYSTARTUP.COM") .nes. "") then -
 $     @WATCHER_DIR:WATCHER_SYSTARTUP.COM
 $ endif
 $
-$ if (f$trnlnm("WATCHER_TRACE","LNM$SYSTEM_DIRECTORY","EXECUTIVE") .eqs. "") then -
-$   dns 			WATCHER_TRACE	WATCHER_DIR:WATCHER_TRACE.LOG
-$
 $ if (f$search("WATCHER_DIR:WATCHER.LOG;-1") .nes. "") then -
 $   purge/keep=5 WATCHER_DIR:WATCHER.LOG
 $
-$ WATCHER_AST_LIMIT == 50
-$ WATCHER_BUFFER_LIMIT == 2048
-$ WATCHER_ENQUE_LIMIT == 10
-$ WATCHER_EXTENT == 2048
-$ WATCHER_IO_BUFFERED = 32
-$ WATCHER_IO_DIRECT == 32
-$ WATCHER_FILE_LIMIT == 10
-$ WATCHER_PAGE_FILE == 16384
-$ WATCHER_QUEUE_LIMIT == 50
+$! Need to test for these symbols and define to the default values below,
+$! if they are not...don't allow them to be set below these values...
 $
-$ RUN/DETACHED/OUTPUT=NL:/PROCESS="Watcher"-
-    /AST_LIMIT=50/BUFFER=2048/ENQUE=10/EXTENT=2048-
-    /FILE_LIMIT=10/IO_BUF=32/IO_DIR=32/JOB_TABLE=0-
-    /MAXIMUM=512/TIME_LIMIT=0/PAGE_FILE=16384/QUEUE_LIMIT=50-
-    /PRIV=(NOSAME,TMPMBX,NETMBX,OPER,WORLD,SHARE,SYSNAM,-
-    	    PRMMBX,SYSPRV,CMKRNL,PSWAPM)-
-    /INPUT=WATCHER_DIR:WATCHER.COM -
-    /OUTPUT=WATCHER_LOG: -
-    SYS$SYSTEM:LOGINOUT.EXE
-$ EXIT 1
+$ check_quota watcher_ast_limit 	50
+$ check_quota watcher_buffer_limit 	2048
+$ check_quota watcher_enque_limit	10
+$ check_quota watcher_extent 		2048
+$ check_quota watcher_io_buffered 	32
+$ check_quota watcher_io_direct		32
+$ check_quota watcher_file_limit	10
+$ check_quota watcher_page_file		16384
+$ check_quota watcher_queue_limit	50
+$
+$ run/detached/output=NL:/process="Watcher"-
+     /ast='watcher_ast_limit'/buffer='watcher_buffer_limit'-
+     /file_limit='watcher_file_limit'/io_buffered='watcher_io_buffered'-
+     /io_direct='watcher_io_direct'/job_table=0-
+     /maximum_working_set=512/time_limit=0/page_file='watcher_page_file'-
+     /queue_limit='watcher_queue_limit'/enque='watcher_enque_limit'-
+     /extent='watcher_extent'-
+     /priv=(nosame,tmpmbx,netmbx,oper,world,share,sysnam,-
+    	    prmmbx,sysprv,cmkrnl,pswapm)-
+     /input=WATCHER_DIR:WATCHER.COM -
+     /output=WATCHER_LOG: -
+     SYS$SYSTEM:LOGINOUT.EXE
+$
 $bail_out:
 $ exitt 1.or.(0*f$verify(__vfy_saved))
 $ !+==========================================================================
