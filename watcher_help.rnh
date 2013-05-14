@@ -1,0 +1,151 @@
+.!++
+.! ABSTRACT:    WATCHER DCL help file.
+.!
+.! FACILITY:    WATCHER
+.!
+.! DESCRIPTION:
+.!
+.!   This is the RUNOFF source for the DCL help file for
+.!   WATCHER.  It is simply a pointer to the WCP HELP command.
+.!
+.! AUTHOR:      Tim E. Sneddon
+.!
+.! Copyright (c) 2013, Endless Software Solutions.
+.!
+.! All rights reserved.
+.!
+.! Redistribution and use in source and binary forms, with or without
+.! modification, are permitted provided that the following conditions
+.! are met:
+.!
+.!     * Redistributions of source code must retain the above
+.!       copyright notice, this list of conditions and the following
+.!       disclaimer.
+.!     * Redistributions in binary form must reproduce the above
+.!       copyright notice, this list of conditions and the following
+.!       disclaimer in the documentation and/or other materials provided
+.!       with the distribution.
+.!     * Neither the name of the copyright owner nor the names of any
+.!       other contributors may be used to endorse or promote products
+.!       derived from this software without specific prior written
+.!       permission.
+.!
+.! THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS
+.! "AS IS" AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT
+.! LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR
+.! A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT
+.! OWNER OR CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL,
+.! SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT
+.! LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES LOSS OF USE,
+.! DATA, OR PROFITS OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY
+.! THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
+.! (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
+.! OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+.!
+.! MODIFICATION HISTORY:
+.!
+.!  07-SEP-2010 V1.0    Sneddon     Initial coding.
+.!--
+.P0
+.AP
+.LM1
+.RM70
+.I-1
+1 WATCHER
+ WATCHER is an idle terminal monitor.  That is, it logs out interactive
+users after a certain period of inactivity.  WATCHER is fully configurable,
+allowing the system manager to define which terminals to watch, what
+measurements to use, and how long a terminal should be idle before
+getting zapped.  It also includes provisions for preventing logouts or
+overriding inactivity settings based on any combination of username,
+UIC, terminal, privileges, image being run, held identifier, and time of day.
+
+ WATCHER is controlled via the WATCHER Control Program (WCP).  For further
+HELP see the WCP HELP command:
+.NJ
+.B
+.I+4;$ WCP
+.I+4;WCP> HELP
+.B
+.J
+.I-1
+2 Support
+.I-1
+ WATCHER is an open-source software package, released under a 3 clause
+BSD-style license (chose the "License" topic to see the full license).
+This means, that as the user of the software, you are in control.  Each
+WATCHER software kit comes with full build procedures and source to both
+the software and the documentation allowing you to use WATCHER how, when,
+where and as you see fit.
+
+ WATCHER is formally supported by Endless Software Solutions and
+continued development and support of WATCHER is funded through the
+purchase of software support contracts and enhancements by WATCHER users
+like yourself.
+
+ Further information regarding WATCHER is available from the Endless
+Software Solutions website:
+.NJ
+.B
+.I+4;http://www.endlesssoftware.com.au
+.B
+.J
+or, alternatively email WATCHER support at:
+.NJ
+.B
+.I+4;watcher@endlesssoftwares.com.au
+.B
+.J
+.I-1
+2 Documentation
+.I-1
+ Full product documentation for the installed version of
+WATCHER is available, if included as part of the
+installation, can be found by executing the following
+DCL:
+.NJ
+.B
+.I+4;$ DIRECTORY WATCHER_DOC:*.*
+.B
+.J
+ If the documentation was not included in the installation,
+or you wish to see the latest documentation then use your
+web browser to go to:
+.NJ
+.B
+.I+4;http://www.endlesssoftware.com.au
+.B
+.J
+2 License
+ WATCHER is released under the following 3 clause BSD-style
+license:
+.I-1
+.I;Copyright (c) 2010, Matthew Madison.
+.I;Copyright (c) 2013, Endless Software Solutions.
+
+ All rights reserved.
+
+ Redistribution and use in source and binary forms, with or without
+modification, are permitted provided that the following conditions
+are met:
+.LS "o"
+.LE;Redistributions of source code must retain the above copyright notice,
+this list of conditions and the following disclaimer.
+.LE;Redistributions in binary form must reproduce the above copyright
+notice, this list of conditions and the following disclaimer in the
+documentation and/or other materials provided with the distribution.
+.LE;Neither the name of the copyright owner nor the names of any
+other contributors may be used to endorse or promote products derived
+from this software without specific prior written permission.
+.ELS
+ THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS
+"AS IS" AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT
+LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR
+A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT
+OWNER OR CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL,
+SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT
+LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES LOSS OF USE,
+DATA, OR PROFITS OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY
+THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
+(INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
+OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
