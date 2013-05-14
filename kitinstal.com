@@ -240,6 +240,59 @@ $ VMI$CALLBACK ASK watcher_do_startup -
 $
 $ VMI$CALLBACK MESSAGE I INSTALL "Installing WATCHER software..."
 $
+$ watcher_root = f$parse(watcher_root,,,"DEVICE","SYNTAX_ONLY") -
+	+ "[" + (f$extract(1,-1,f$parse(watcher_root,,,"DIRECTORY","SYNTAX_ONLY")) -
+	- "][" - "><" - ">[" - "]<" - "]" - ">")
+$ watcher_iroot = f$parse(watcher_root+"]",,,"DEVICE","SYNTAX_ONLY,NO_CONCEAL") -
+	+ "[" + (f$extract(1,-1,f$parse(watcher_root+"]",,,"DIRECTORY","NO_CONCEAL,SYNTAX_ONLY")) -
+	- "][" - "><" - ">[" - "]<" - "]" - ">") + "]"
+$ watcher_install_device = f$parse(watcher_iroot,,,"DEVICE")
+$ watcher_install_root = "WATCHER_DEVICE:"+ f$parse(watcher_iroot,,,"DIRECTORY") - "]" + ".]"
+$ define WATCHER_DEVICE 'watcher_install_device'/TRANSLATION=(CONCEALED,TERMINAL)
+$ define WATCHER_INSTALL_ROOT 'watcher_install_root'/TRANSLATION=CONCEALED
+$ define WATCHER_ROOT 'watcher_install_root'/TRANSLATION=CONCEALED
+$
+$ if (f$parse("''watcher_root']") .eqs. "") then -
+    VMI$CALLBACK CREATE_DIRECTORY USER 'watcher_root'] -
+                "/OWNER=[1,4]/PROT=(S:RWE,O:RWE,G:RE,W:E)"
+$
+$ if (f$parse("''watcher_root'.''watcher_arch'_EXE]") .eqs. "") then -
+    VMI$CALLBACK CREATE_DIRECTORY USER 'watcher_root'.'watcher_arch'_exe] -
+                "/OWNER=[1,4]/PROT=(S:RWE,O:RWE,G:RE,W:E)"
+$
+$ if (watcher_do_command) then -
+$    VMI$CALLBACK PROVIDE_DCL_COMMAND WCP_CMD_CLD.CLD
+$
+$ if (watcher_do_help)
+$ then
+$    VMI$CALLBACK PROVIDE_DCL_HELP WATCHER_HELP.HLP
+$    VMI$CALLBACK PROVIDE_DCL_HELP WCP_HELP.HLP
+$ endif
+$
+$ VMI$CALLBACK PROVIDE_FILE WATCHER_TMP -
+	WATCHER_SYSTARTUP.TEMPLATE 'watcher_root'] K
+$ VMI$CALLBACK PROVIDE_FILE WATCHER_TMP -
+	WATCHER___STARTUP.COM 'watcher_root'] K
+$ VMI$CALLBACK PROVIDE_FILE WATCHER_TMP WCP_HELPLIB.HLB 'watcher_root'] K
+$
+$ VMI$CALLBACK RESTORE_SAVESET 'base_saveset'
+$
+$ ! here we link the images WATCHER.EXE,WCP.EXE,FORCE_EXIT.EXE
+$
+$ VMI$CALLBACK PROVIDE_IMAGE WATCHER_TMP -
+	WATCHER.EXE 'watcher_root'.'watcher_arch'_EXE] K
+$ VMI$CALLBACK PROVIDE_IMAGE WATCHER_TMP -
+	WCP.EXE 'watcher_root'.'watcher_arch'_EXE] K
+$
+$ if (watcher_do_doc)
+$ then
+$   VMI$CALLBACK MESSAGE I INSTALL_DOC "Installing documentation files..."
+$   if (f$parse("''watcher_root'.DOC]").eqs."") then -
+        VMI$CALLBACK CREATE_DIRECTORY USER 'watcher_root'.DOC] -
+                "/OWNER=[1,4]/PROT=(S:RWE,O:RWE,G:R,W:R)"
+$   VMI$CALLBACK PROVIDE_FILE "" WATCHER_DOC_LIST.DAT "" T
+$ endif
+$
 $ if (watcher_do_source)
 $ then
 $   VMI$CALLBACK MESSAGE I INSTALL_SOURCE "Installing source kit..."
@@ -249,8 +302,8 @@ $   then
                 "/owner=[1,4]/prot=(s:rwe,o:rwe,g:r,w:r)"
 $   endif
 $   VMI$CALLBACK RESTORE_SAVESET E
-$   VMI$CALLBACK PROVIDE_FILE WATCHER_TMP WATCHER'mmk_kit_version'_SOURCE.ZIP -
-        'watcher_root'.SRC]
+$   VMI$CALLBACK PROVIDE_FILE WATCHER_TMP -
+	WATCHER'watcher_kit_version'_SOURCE.ZIP 'watcher_root'.SRC]
 $ endif
 $
 $ close/nolog sp
@@ -272,7 +325,7 @@ $ exit VMI$_SUCCESS
 $help_upgrade:
 $ type SYS$INPUT:
 
-    The following version of MMK has been detected by the
+    The following version of WATCHER has been detected by the
     installation procedure:
 
 $ wcp show version
