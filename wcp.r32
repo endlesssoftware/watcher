@@ -37,8 +37,8 @@
 !
 !--
 
-    LIBRARY 'WATCHER';
-    LIBRARY 'FIELDS';
+    LIBRARY 'ETC_DIR:WATCHER';
+    LIBRARY 'ETC_DIR:FIELDS';
 
     _DEF (DFLT)
     	DFLT_L_CFGCODE	    = _LONG,	! used only by CONFIG routines

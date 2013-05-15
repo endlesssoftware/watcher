@@ -68,8 +68,8 @@ BEGIN
 !   06-SEP-2010 V1.7-3  Sneddon     Updated license to BSD at request of M. Madison.
 !--
     LIBRARY 'SYS$LIBRARY:STARLET';
-    LIBRARY 'WATCHER';
-    LIBRARY 'WATCHER_PRIVATE';
+    LIBRARY 'ETC_DIR:WATCHER';
+    LIBRARY 'ETC_DIR:WATCHER_PRIVATE';
 
     FORWARD ROUTINE
     	WARN,
