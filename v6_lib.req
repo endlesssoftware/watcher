@@ -5737,7 +5737,7 @@ literal CIA$K_TERMINAL = 1;             !  Unknown user at terminal
 literal CIA$K_TERM_USER = 2;            !  Known username at terminal
 literal CIA$K_NETWORK = 3;              !  Network source
 literal CIA$K_USERNAME = 4;             !  Username of parent process
-literal CIA$M_INTRUDER = 1;
+!literal CIA$M_INTRUDER = 1;
 literal CIA$K_LENGTH = 152;             !  Length of CIA block
 literal CIA$C_LENGTH = 152;             !  Length of CIA block
 literal CIA$S_CIADEF = 152;
@@ -5748,7 +5748,7 @@ macro CIA$B_TYPE = 10,0,8,0 %;          !  Structure type
 macro CIA$B_SUBTYPE = 11,0,8,0 %;       !  Structure subtype
 !  Source of breakin attempt
 macro CIA$W_FLAGS = 12,0,16,0 %;        !  Breakin type flags 
-macro CIA$V_INTRUDER = 12,0,1,0 %;      !  Entry is an intruder
+!macro CIA$V_INTRUDER = 12,0,1,0 %;      !  Entry is an intruder
 macro CIA$W_COUNT = 14,0,16,0 %;        !  Count of attempts
 macro CIA$Q_TIME = 16,0,0,0 %;
 literal CIA$S_TIME = 8;                 !  Expiration time of entry
