@@ -1,5 +1,5 @@
 %TITLE 'PERFORM_DISCONNECT'
-MODULE PERFORM_DISCONNECT (IDENT='V1.1-1') =
+MODULE PERFORM_DISCONNECT (IDENT='V1.2') =
 BEGIN
 !++
 ! FACILITY: 	    PERFORM_DISCONNECT
@@ -13,6 +13,7 @@ BEGIN
 ! AUTHOR:   	    M. Madison
 !
 ! Copyright (c) 2010, Matthew Madison.
+! Copyright (c) 2013, Endless Software Solutions.
 !
 ! All rights reserved.
 !
@@ -53,9 +54,27 @@ BEGIN
 !   06-FEB-1997	V1.0-2	Madison	    Use $TTYVECDEF-defined CLASS_DISCONNECT macro.
 !   01-JAN-2005 V1.1    Madison     IA64 support.
 !   06-SEP-2010 V1.1-1  Sneddon     Updated license to BSD at request of M. Madison.
+!   15-MAY-2013 V1.2    Sneddon	    Includes relevant arch-specific header.
 !--
 
-    LIBRARY 'LIBREQ_DIR:LIB';
+    LIBRARY
+%IF %VARIANT NEQ 0 %THEN
+    %IF %BLISS(BLISS32V) %THEN
+        %IF %VARIANT EQL 5 %THEN
+	'ETC_DIR:V5_LIB';
+        %ELSE
+	'ETC_DIR:V6_LIB'; %FI
+    %ELSE %IF %BLISS(BLISS32E) %THEN
+        %IF %VARIANT EQL 6 %THEN
+    	'ETC_DIR:V6_LIB';
+        %ELSE
+    	'ETC_DIR:V7_LIB'; %FI
+    %ELSE %IF %BLISS(BLISS32I) %THEN
+	'ETC_DIR:LIB'; %FI
+    %FI %FI
+%ELSE
+	'SYS$LIBRARY:LIB';
+%FI
 
     FORWARD ROUTINE
     	PERFORM_DISCONNECT,
