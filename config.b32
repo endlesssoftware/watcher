@@ -55,8 +55,8 @@ BEGIN
 !   06-SEP-2010 V1.1-1  Sneddon     Updated license to BSD at request of M. Madison.
 !--
     LIBRARY 'SYS$LIBRARY:STARLET';
-    LIBRARY 'WATCHER';
-    LIBRARY 'WCP';
+    LIBRARY 'ETC_DIR:WATCHER';
+    LIBRARY 'ETC_DIR:WCP';
 
     EXTERNAL ROUTINE
     	STR$COPY_DX 	: BLISS ADDRESSING_MODE (GENERAL),
