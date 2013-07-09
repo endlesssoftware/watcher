@@ -302,7 +302,7 @@ $   VMI$CALLBACK MESSAGE I INSTALL_DOC "Installing documentation files..."
 $   if (f$parse("''watcher_root'.DOC]").eqs."") then -
         VMI$CALLBACK CREATE_DIRECTORY USER 'watcher_root'.DOC] -
                 "/OWNER=[1,4]/PROT=(S:RWE,O:RWE,G:R,W:R)"
-$   VMI$CALLBACK PROVIDE_FILE "" WATCHER_DOC_LIST.DAT "" T
+$   VMI$CALLBACK PROVIDE_FILE "" WATCHER_DOCS_LIST.DAT "" T
 $ endif
 $
 $ if (watcher_do_source)
