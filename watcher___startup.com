@@ -79,7 +79,7 @@ $   if (f$search("WATCHER_DIR:WATCHER_SYSTARTUP.COM") .nes. "") then -
 $     @WATCHER_DIR:WATCHER_SYSTARTUP.COM
 $ endif
 $
-$ if (f$edit(p1,"UPCASE,TRIM.UNCOMMENT,COLLAPSE") .eqs. "LOGICALS") then -
+$ if (f$edit(p1,"UPCASE,TRIM,UNCOMMENT,COLLAPSE") .eqs. "LOGICALS") then -
 $   goto bail_out
 $
 $ if (f$search("WATCHER_DIR:WATCHER.LOG;-1") .nes. "") then -
