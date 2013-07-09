@@ -1,5 +1,5 @@
 %TITLE 'PERFORM_DISCONNECT'
-MODULE PERFORM_DISCONNECT (IDENT='V1.2') =
+MODULE PERFORM_DISCONNECT (IDENT='V1.2-1') =
 BEGIN
 !++
 ! FACILITY: 	    PERFORM_DISCONNECT
@@ -55,6 +55,7 @@ BEGIN
 !   01-JAN-2005 V1.1    Madison     IA64 support.
 !   06-SEP-2010 V1.1-1  Sneddon     Updated license to BSD at request of M. Madison.
 !   15-MAY-2013 V1.2    Sneddon	    Includes relevant arch-specific header.
+!   09-JUL-2013 V1.2-1  Sneddon	    Update architecture selection.
 !--
 
     LIBRARY
@@ -62,13 +63,17 @@ BEGIN
     %IF %BLISS(BLISS32V) %THEN
         %IF %VARIANT EQL 5 %THEN
 	'ETC_DIR:V5_LIB';
-        %ELSE
-	'ETC_DIR:V6_LIB'; %FI
+        %ELSE %IF %VARIANT EQL 6 %THEN
+	'ETC_DIR:V6_LIB';
+	%ELSE
+	'ETC_DIR:V7_LIB'; %FI %FI
     %ELSE %IF %BLISS(BLISS32E) %THEN
         %IF %VARIANT EQL 6 %THEN
     	'ETC_DIR:V6_LIB';
-        %ELSE
-    	'ETC_DIR:V7_LIB'; %FI
+        %ELSE %IF %VARIANT EQL 7 %THEN
+    	'ETC_DIR:V7_LIB';
+	%ELSE
+	'ETC_DIR:V8_LIB'; %FI %FI
     %ELSE %IF %BLISS(BLISS32I) %THEN
 	'ETC_DIR:LIB'; %FI
     %FI %FI
