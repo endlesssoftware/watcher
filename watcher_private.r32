@@ -53,8 +53,8 @@
 !   06-SEP-2010 V1.5-2  Sneddon     Updated license to BSD at request of M. Madison.
 !--
 
-    LIBRARY 'WATCHER';
-    LIBRARY 'FIELDS';
+    LIBRARY 'ETC_DIR:WATCHER';
+    LIBRARY 'ETC_DIR:FIELDS';
 
 !++
 ! CTRDEF: counter structure
