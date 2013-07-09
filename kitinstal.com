@@ -174,13 +174,13 @@ $ if (f$search("SYS$STARTUP:WATCHER_STARTUP.COM") .nes. "") then -
 $   @SYS$STARTUP:WATCHER_STARTUP
 $ if (f$trnlnm("WATCHER_ROOT") .eqs. "")
 $ then
-$   ! if WATCHER_DIR defined
-$   ! then
+$   if (f$trnlnm("WATCHER_DIR") .nes. "")
+$   then
 $     ! need to indicate we found older, pre-V4.2 installation?
 $     ! what do we do?
-$   ! else
+$   else
 $     watcher_def_root = "SYS$COMMON:[WATCHER.]"
-$   ! endif
+$   endif
 $ else
 $   watcher_def_root = f$parse("WATCHER_ROOT:[000000]",,,"DEVICE","NO_CONCEAL") -
                  + f$parse("WATCHER_ROOT:[000000]",,,"DIRECTORY","NO_CONCEAL") -
